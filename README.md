@@ -203,6 +203,7 @@ Check out the [examples](examples) directory for more usage examples:
 - [Middleware Usage](examples/middleware/main.go)
 - [Response Types](examples/respond/main.go)
 - [Cache Usage](examples/cache/main.go)
+- [Task Usage](examples/tasks/main.go)
 
 ## License
 
