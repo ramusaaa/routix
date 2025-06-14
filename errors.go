@@ -5,6 +5,8 @@ package routix
 import (
 	"fmt"
 	"net/http"
+	"runtime"
+	"strings"
 )
 
 // ValidationError represents a validation error with a field name and message.
@@ -37,34 +39,12 @@ func (e ValidationErrors) Error() string {
 	return msg
 }
 
-// HTTPError represents an HTTP error with a status code and message.
-// It is used to standardize HTTP error responses.
-type HTTPError struct {
-	StatusCode int    `json:"statusCode"`
-	Message    string `json:"message"`
-}
-
-// Error implements the error interface for HTTPError.
-// It returns the error message.
-func (e *HTTPError) Error() string {
-	return e.Message
-}
-
 // NewValidationError creates a new ValidationError with the given field and message.
 // It is used to create standardized validation error responses.
 func NewValidationError(field, message string) *ValidationError {
 	return &ValidationError{
 		Field:   field,
 		Message: message,
-	}
-}
-
-// NewHTTPError creates a new HTTPError with the given status code and message.
-// It is used to create standardized HTTP error responses.
-func NewHTTPError(statusCode int, message string) *HTTPError {
-	return &HTTPError{
-		StatusCode: statusCode,
-		Message:    message,
 	}
 }
 
@@ -81,18 +61,11 @@ func IsValidationErrors(err error) bool {
 	return ok
 }
 
-// IsHTTPError checks if the given error is an HTTPError.
-// It is used to determine if an error should be handled as an HTTP error.
-func IsHTTPError(err error) bool {
-	_, ok := err.(*HTTPError)
-	return ok
-}
-
 // GetHTTPStatusCode returns the appropriate HTTP status code for the given error.
-// It handles both ValidationError and HTTPError types, defaulting to 500 for unknown errors.
+// It handles both ValidationError and Error types, defaulting to 500 for unknown errors.
 func GetHTTPStatusCode(err error) int {
-	if httpErr, ok := err.(*HTTPError); ok {
-		return httpErr.StatusCode
+	if e, ok := err.(*Error); ok {
+		return e.Code
 	}
 	if _, ok := err.(*ValidationError); ok {
 		return http.StatusBadRequest
@@ -116,4 +89,97 @@ func UnwrapError(err error) error {
 		return u.Unwrap()
 	}
 	return err
+}
+
+// Error represents a Routix error with additional context
+type Error struct {
+	Code    int    // HTTP status code
+	Message string // User-friendly error message
+	Err     error  // Original error
+	Stack   string // Stack trace
+}
+
+// Error implements the error interface
+func (e *Error) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %v", e.Message, e.Err)
+	}
+	return e.Message
+}
+
+// Unwrap returns the wrapped error
+func (e *Error) Unwrap() error {
+	return e.Err
+}
+
+// NewError creates a new Routix error with stack trace
+func NewError(code int, message string, err error) *Error {
+	const depth = 32
+	var pcs [depth]uintptr
+	n := runtime.Callers(3, pcs[:])
+	frames := runtime.CallersFrames(pcs[:n])
+
+	var stack strings.Builder
+	for {
+		frame, more := frames.Next()
+		fmt.Fprintf(&stack, "%s\n\t%s:%d\n", frame.Function, frame.File, frame.Line)
+		if !more {
+			break
+		}
+	}
+
+	return &Error{
+		Code:    code,
+		Message: message,
+		Err:     err,
+		Stack:   stack.String(),
+	}
+}
+
+// Common error constructors
+func BadRequest(message string, err error) *Error {
+	return NewError(400, message, err)
+}
+
+func Unauthorized(message string, err error) *Error {
+	return NewError(401, message, err)
+}
+
+func Forbidden(message string, err error) *Error {
+	return NewError(403, message, err)
+}
+
+func NotFound(message string, err error) *Error {
+	return NewError(404, message, err)
+}
+
+func MethodNotAllowed(message string, err error) *Error {
+	return NewError(405, message, err)
+}
+
+func InternalServerError(message string, err error) *Error {
+	return NewError(500, message, err)
+}
+
+// ErrorResponse represents the structure of error responses
+type ErrorResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Error   string `json:"error,omitempty"`
+	Stack   string `json:"stack,omitempty"`
+}
+
+// ToResponse converts an Error to an ErrorResponse
+func (e *Error) ToResponse() ErrorResponse {
+	resp := ErrorResponse{
+		Code:    e.Code,
+		Message: e.Message,
+	}
+	if e.Err != nil {
+		resp.Error = e.Err.Error()
+	}
+	if e.Stack != "" {
+		resp.Stack = e.Stack
+	}
+	return resp
 }

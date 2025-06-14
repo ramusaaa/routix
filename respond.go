@@ -32,26 +32,6 @@ type SuccessResponse[T any] struct {
 	Data T `json:"data"`
 }
 
-// ErrorResponse represents an error response with a message.
-// It follows a consistent error format for all error responses.
-type ErrorResponse struct {
-	BaseResponse
-	Data struct {
-		Message string `json:"message"`
-	} `json:"data"`
-}
-
-// PaginatedResponse represents a paginated response with generic data.
-// It includes page information and total page count.
-type PaginatedResponse[T any] struct {
-	BaseResponse
-	Data struct {
-		Page       T   `json:"page"`
-		PageNumber int `json:"pageNumber"`
-		TotalPages int `json:"totalPages"`
-	} `json:"data"`
-}
-
 // RespondError represents a custom error type for standardized error responses.
 // It implements the error interface and provides formatted error messages.
 type RespondError struct {

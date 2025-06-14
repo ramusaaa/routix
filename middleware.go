@@ -1,8 +1,39 @@
-// Package routix provides middleware utilities for HTTP request processing.
-// It includes common middleware functions for logging, authentication, and request handling.
+// Package routix provides a collection of middleware functions for HTTP request processing.
+// The middleware package includes common middleware for logging, authentication,
+// rate limiting, caching, and more.
+//
+// Features:
+// - Request logging with timing
+// - Error handling and recovery
+// - CORS support
+// - Authentication middleware
+// - Rate limiting
+// - Request timeout
+// - Response caching
+// - Response compression
+// - Request validation
+//
+// Example usage:
+//
+//	router := routix.New()
+//	router.Use(
+//	    routix.Logger(),
+//	    routix.Recovery(),
+//	    routix.CORS(),
+//	    routix.RateLimit(100, time.Minute),
+//	)
+//
+//	// Protected routes
+//	auth := router.Group("/api")
+//	auth.Use(routix.Auth(validateToken))
+//	auth.GET("/users", getUsers)
+//
+//	// Routes with validation
+//	router.POST("/users", routix.Validate(&User{}), createUser)
 package routix
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -34,20 +65,70 @@ func Logger() Middleware {
 	}
 }
 
-// Recovery returns a middleware that recovers from panics.
-// It prevents the server from crashing and returns a 500 error instead.
+// ErrorHandler is a middleware that handles errors in a consistent way
+func ErrorHandler() Middleware {
+	return func(next Handler) Handler {
+		return func(c *Context) error {
+			// Call the next handler
+			err := next(c)
+			if err == nil {
+				return nil
+			}
+
+			// Handle the error
+			var routixErr *Error
+			if e, ok := err.(*Error); ok {
+				routixErr = e
+			} else {
+				routixErr = InternalServerError("Internal Server Error", err)
+			}
+
+			// Convert error to response
+			resp := routixErr.ToResponse()
+
+			// Set content type
+			c.Response.Header().Set("Content-Type", "application/json")
+			c.Response.WriteHeader(routixErr.Code)
+
+			// Encode and send response
+			return json.NewEncoder(c.Response).Encode(resp)
+		}
+	}
+}
+
+// Recovery is a middleware that recovers from panics
 func Recovery() Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) error {
 			defer func() {
-				if err := recover(); err != nil {
-					// Log the panic
-					fmt.Printf("Panic recovered: %v\n", err)
+				if r := recover(); r != nil {
+					var err error
+					switch x := r.(type) {
+					case string:
+						err = InternalServerError("Internal Server Error", fmt.Errorf("%s", x))
+					case error:
+						err = InternalServerError("Internal Server Error", x)
+					default:
+						err = InternalServerError("Internal Server Error", fmt.Errorf("unknown panic"))
+					}
 
-					// Return 500 error
-					c.JSON(http.StatusInternalServerError, map[string]string{
-						"error": "Internal Server Error",
-					})
+					// Handle the error
+					var routixErr *Error
+					if e, ok := err.(*Error); ok {
+						routixErr = e
+					} else {
+						routixErr = InternalServerError("Internal Server Error", err)
+					}
+
+					// Convert error to response
+					resp := routixErr.ToResponse()
+
+					// Set content type
+					c.Response.Header().Set("Content-Type", "application/json")
+					c.Response.WriteHeader(routixErr.Code)
+
+					// Encode and send response
+					json.NewEncoder(c.Response).Encode(resp)
 				}
 			}()
 
@@ -160,8 +241,9 @@ func Validate(v interface{}) Middleware {
 				return c.Error(err, "Validation failed")
 			}
 
-			if errors := ValidateStruct(v); len(errors) > 0 {
-				return c.Error(fmt.Errorf("validation failed: %v", errors), "Validation failed")
+			validator := NewValidator()
+			if !validator.Validate(v) {
+				return c.Error(fmt.Errorf("validation failed: %v", validator.Errors()), "Validation failed")
 			}
 
 			return next(c)
