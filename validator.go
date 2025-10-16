@@ -1,6 +1,7 @@
 package routix
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -8,47 +9,16 @@ import (
 	"time"
 )
 
-// Package routix provides a powerful validation system for HTTP requests.
-// The validator package implements a flexible and extensible validation framework
-// that supports various validation rules and custom validators.
-//
-// Features:
-// - Struct-based validation using tags
-// - Built-in validators for common types (string, number, date, etc.)
-// - Custom validation rules
-// - Detailed error messages
-// - Support for nested structs
-// - Extensible architecture
-//
-// Example usage:
-//   type User struct {
-//       Name     string `validate:"required,min=2,max=50"`
-//       Email    string `validate:"required,email"`
-//       Age      int    `validate:"required,min=18,max=120"`
-//       Password string `validate:"required,min=8,regex=^[a-zA-Z0-9!@#$%^&*]+$"`
-//       Role     string `validate:"required,enum=admin|user|guest"`
-//       BirthDate string `validate:"required,date=2006-01-02"`
-//   }
-//
-//   validator := NewValidator()
-//   if !validator.Validate(user) {
-//       errors := validator.Errors()
-//       // Handle validation errors
-//   }
-
-// Validator provides advanced validation features
 type Validator struct {
 	errors []ValidationError
 }
 
-// NewValidator creates a new validator instance
 func NewValidator() *Validator {
 	return &Validator{
 		errors: make([]ValidationError, 0),
 	}
 }
 
-// Validate validates a struct based on its tags
 func (v *Validator) Validate(obj interface{}) bool {
 	val := reflect.ValueOf(obj)
 	if val.Kind() == reflect.Ptr {
@@ -242,4 +212,42 @@ func parseNumber(s string) float64 {
 // Errors returns all validation errors
 func (v *Validator) Errors() []ValidationError {
 	return v.errors
+}
+
+// ValidateJSON validates JSON data against a struct
+func ValidateJSON(data []byte, v interface{}) error {
+	if err := json.Unmarshal(data, v); err != nil {
+		return BadRequest("Invalid JSON format", err)
+	}
+	
+	validator := NewValidator()
+	if !validator.Validate(v) {
+		errors := validator.Errors()
+		if len(errors) > 0 {
+			return BadRequest("Validation failed", ValidationErrors(convertToValidationErrors(errors)))
+		}
+	}
+	
+	return nil
+}
+
+// ValidateStruct validates a struct
+func ValidateStruct(v interface{}) error {
+	validator := NewValidator()
+	if !validator.Validate(v) {
+		errors := validator.Errors()
+		if len(errors) > 0 {
+			return BadRequest("Validation failed", ValidationErrors(convertToValidationErrors(errors)))
+		}
+	}
+	return nil
+}
+
+// Helper function to convert validation errors
+func convertToValidationErrors(errors []ValidationError) []*ValidationError {
+	result := make([]*ValidationError, len(errors))
+	for i, err := range errors {
+		result[i] = &err
+	}
+	return result
 }

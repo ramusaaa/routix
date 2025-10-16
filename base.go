@@ -4,13 +4,11 @@ import (
 	"fmt"
 )
 
-// Schema interface defines the common behavior for all schema types
 type Schema interface {
 	Validate(value any) error
 	IsRequired() bool
 }
 
-// BaseSchema provides common functionality for all schema types
 type BaseSchema struct {
 	required bool
 }
@@ -31,7 +29,6 @@ func (b *BaseSchema) Validate(value any) error {
 	return nil
 }
 
-// StringSchema validates string values
 type StringSchema struct {
 	*BaseSchema
 	min int
@@ -76,7 +73,6 @@ func (s *StringSchema) Validate(value any) error {
 	return nil
 }
 
-// NumberSchema validates numeric values
 type NumberSchema struct {
 	*BaseSchema
 	min     *float64
@@ -138,7 +134,6 @@ func (n *NumberSchema) Validate(value any) error {
 	return nil
 }
 
-// BooleanSchema validates boolean values
 type BooleanSchema struct {
 	*BaseSchema
 }
@@ -159,7 +154,6 @@ func (b *BooleanSchema) Validate(value any) error {
 	return nil
 }
 
-// ArraySchema validates array values
 type ArraySchema struct {
 	*BaseSchema
 	itemSchema Schema
@@ -223,7 +217,6 @@ func (a *ArraySchema) Validate(value any) error {
 	return nil
 }
 
-// ObjectSchema validates object values
 type ObjectSchema struct {
 	*BaseSchema
 	fields    map[string]Schema
@@ -279,7 +272,6 @@ func (o *ObjectSchema) Validate(value any) error {
 	return nil
 }
 
-// EnumSchema validates enum values
 type EnumSchema struct {
 	*BaseSchema
 	values []any
@@ -302,7 +294,6 @@ func (e *EnumSchema) Validate(value any) error {
 	return fmt.Errorf("value must be one of: %v", e.values)
 }
 
-// Constructor functions
 func NewStringSchema() *StringSchema {
 	return &StringSchema{BaseSchema: &BaseSchema{}}
 }

@@ -1,252 +1,347 @@
-// Package routix provides utility functions for common HTTP operations.
-// It includes helpers for request validation, response formatting, and error handling.
 package routix
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
-// ValidateStruct validates a struct using its tags.
-// It returns a slice of validation errors if any validation fails.
-func ValidateStruct(v interface{}) []error {
-	var errors []error
-	val := reflect.ValueOf(v)
-
-	// Handle pointers
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-
-	// Must be a struct
-	if val.Kind() != reflect.Struct {
-		return []error{fmt.Errorf("value must be a struct")}
-	}
-
-	// Iterate through fields
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Type().Field(i)
-		value := val.Field(i)
-
-		// Get validation tags
-		tag := field.Tag.Get("validate")
-		if tag == "" {
-			continue
-		}
-
-		// Parse validation rules
-		rules := strings.Split(tag, ",")
-		for _, rule := range rules {
-			parts := strings.Split(rule, "=")
-			ruleName := parts[0]
-			var ruleValue string
-			if len(parts) > 1 {
-				ruleValue = parts[1]
-			}
-
-			// Apply validation rules
-			switch ruleName {
-			case "required":
-				if value.IsZero() {
-					errors = append(errors, fmt.Errorf("%s is required", field.Name))
-				}
-			case "min":
-				min, _ := strconv.Atoi(ruleValue)
-				switch value.Kind() {
-				case reflect.String:
-					if len(value.String()) < min {
-						errors = append(errors, fmt.Errorf("%s must be at least %d characters", field.Name, min))
-					}
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					if value.Int() < int64(min) {
-						errors = append(errors, fmt.Errorf("%s must be at least %d", field.Name, min))
-					}
-				}
-			case "max":
-				max, _ := strconv.Atoi(ruleValue)
-				switch value.Kind() {
-				case reflect.String:
-					if len(value.String()) > max {
-						errors = append(errors, fmt.Errorf("%s must be at most %d characters", field.Name, max))
-					}
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					if value.Int() > int64(max) {
-						errors = append(errors, fmt.Errorf("%s must be at most %d", field.Name, max))
-					}
-				}
-			case "email":
-				if value.Kind() == reflect.String {
-					if !strings.Contains(value.String(), "@") {
-						errors = append(errors, fmt.Errorf("%s must be a valid email address", field.Name))
-					}
-				}
-			}
-		}
-	}
-
-	return errors
+func GenerateID() string {
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
 }
 
-// ParseJSON parses a JSON request body into a struct.
-// It returns an error if the body cannot be parsed or validated.
-func ParseJSON(r *http.Request, v interface{}) error {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		return fmt.Errorf("invalid JSON: %w", err)
+func ParseDuration(s string) time.Duration {
+	if d, err := time.ParseDuration(s); err == nil {
+		return d
 	}
-
-	if errors := ValidateStruct(v); len(errors) > 0 {
-		return fmt.Errorf("validation failed: %v", errors)
+	
+	switch s {
+	case "1s":
+		return time.Second
+	case "1m":
+		return time.Minute
+	case "5m":
+		return 5 * time.Minute
+	case "10m":
+		return 10 * time.Minute
+	case "30m":
+		return 30 * time.Minute
+	case "1h":
+		return time.Hour
+	case "24h":
+		return 24 * time.Hour
+	default:
+		return time.Minute
 	}
-
-	return nil
 }
 
-// Must panics if the given error is not nil.
-// It is used to handle critical errors that should stop program execution.
-func Must(err error) {
+func ToJSON(v interface{}) ([]byte, error) {
+	return json.Marshal(v)
+}
+
+func FromJSON(data []byte, v interface{}) error {
+	return json.Unmarshal(data, v)
+}
+
+func ToMap(v interface{}) (map[string]interface{}, error) {
+	data, err := json.Marshal(v)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
+	
+	var result map[string]interface{}
+	err = json.Unmarshal(data, &result)
+	return result, err
 }
 
-// MustValidate panics if struct validation fails.
-// It is used to ensure required fields are present and valid.
-func MustValidate(v interface{}) {
-	if errors := ValidateStruct(v); len(errors) > 0 {
-		panic(fmt.Errorf("validation failed: %v", errors))
+func FromMap(m map[string]interface{}, v interface{}) error {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err
 	}
+	
+	return json.Unmarshal(data, v)
 }
 
-// GetQueryParam gets a query parameter with a default value.
-// It returns the parameter value if present, otherwise the default value.
-func GetQueryParam(r *http.Request, key, defaultValue string) string {
-	if value := r.URL.Query().Get(key); value != "" {
-		return value
+func GetContentType(req *http.Request) string {
+	return req.Header.Get("Content-Type")
+}
+
+func IsJSONRequest(req *http.Request) bool {
+	contentType := GetContentType(req)
+	return strings.Contains(contentType, "application/json")
+}
+
+func IsFormRequest(req *http.Request) bool {
+	contentType := GetContentType(req)
+	return strings.Contains(contentType, "application/x-www-form-urlencoded") ||
+		strings.Contains(contentType, "multipart/form-data")
+}
+
+func GetRealIP(req *http.Request) string {
+	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+		ips := strings.Split(xff, ",")
+		return strings.TrimSpace(ips[0])
+	}
+	
+	if xri := req.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	
+	if cf := req.Header.Get("CF-Connecting-IP"); cf != "" {
+		return cf
+	}
+	
+	return req.RemoteAddr
+}
+
+func ParseInt(s string, defaultValue int) int {
+	if i, err := strconv.Atoi(s); err == nil {
+		return i
 	}
 	return defaultValue
 }
 
-// GetHeader gets a header value with a default value.
-// It returns the header value if present, otherwise the default value.
-func GetHeader(r *http.Request, key, defaultValue string) string {
-	if value := r.Header.Get(key); value != "" {
-		return value
+func ParseInt64(s string, defaultValue int64) int64 {
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i
 	}
 	return defaultValue
 }
 
-// GetCookie gets a cookie value with a default value.
-// It returns the cookie value if present, otherwise the default value.
-func GetCookie(r *http.Request, name, defaultValue string) string {
-	if cookie, err := r.Cookie(name); err == nil {
-		return cookie.Value
+func ParseFloat(s string, defaultValue float64) float64 {
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f
 	}
 	return defaultValue
 }
 
-// ParseJSON parses the request body as JSON into the given struct
-func (c *Context) ParseJSON(v interface{}) error {
-	if c.Request.Body == nil {
-		return fmt.Errorf("request body is empty")
+func ParseBool(s string, defaultValue bool) bool {
+	if b, err := strconv.ParseBool(s); err == nil {
+		return b
 	}
+	return defaultValue
+}
 
-	decoder := json.NewDecoder(c.Request.Body)
-	if err := decoder.Decode(v); err != nil {
-		return fmt.Errorf("failed to parse JSON: %w", err)
+func Contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
 	}
+	return false
+}
 
+func ContainsInt(slice []int, item int) bool {
+	for _, i := range slice {
+		if i == item {
+			return true
+		}
+	}
+	return false
+}
+
+func Unique(slice []string) []string {
+	keys := make(map[string]bool)
+	var result []string
+	
+	for _, item := range slice {
+		if !keys[item] {
+			keys[item] = true
+			result = append(result, item)
+		}
+	}
+	
+	return result
+}
+
+func UniqueInt(slice []int) []int {
+	keys := make(map[int]bool)
+	var result []int
+	
+	for _, item := range slice {
+		if !keys[item] {
+			keys[item] = true
+			result = append(result, item)
+		}
+	}
+	
+	return result
+}
+
+func Merge(maps ...map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	
+	for _, m := range maps {
+		for k, v := range m {
+			result[k] = v
+		}
+	}
+	
+	return result
+}
+
+func Clone(src interface{}) interface{} {
+	srcValue := reflect.ValueOf(src)
+	if !srcValue.IsValid() {
+		return nil
+	}
+	
+	return reflect.New(srcValue.Type()).Elem().Interface()
+}
+
+func IsEmpty(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.String:
+		return v.String() == ""
+	case reflect.Slice, reflect.Map, reflect.Array:
+		return v.Len() == 0
+	case reflect.Ptr, reflect.Interface:
+		return v.IsNil()
+	case reflect.Bool:
+		return !v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return v.Float() == 0
+	}
+	
+	return false
+}
+
+func Coalesce(values ...interface{}) interface{} {
+	for _, value := range values {
+		if !IsEmpty(value) {
+			return value
+		}
+	}
 	return nil
 }
 
-// Task represents an asynchronous task
-type Task struct {
-	ID        string
-	Status    string
-	Progress  float64
-	Result    interface{}
-	Error     error
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-// TaskManager manages asynchronous tasks
-type TaskManager struct {
-	tasks map[string]*Task
-	mu    sync.RWMutex
-}
-
-// NewTaskManager creates a new task manager
-func NewTaskManager() *TaskManager {
-	return &TaskManager{
-		tasks: make(map[string]*Task),
+func TernaryString(condition bool, trueValue, falseValue string) string {
+	if condition {
+		return trueValue
 	}
+	return falseValue
 }
 
-// CreateTask creates a new task
-func (tm *TaskManager) CreateTask(id string) *Task {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	task := &Task{
-		ID:        id,
-		Status:    "pending",
-		Progress:  0,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+func TernaryInt(condition bool, trueValue, falseValue int) int {
+	if condition {
+		return trueValue
 	}
-
-	tm.tasks[id] = task
-	return task
+	return falseValue
 }
 
-// GetTask gets a task by ID
-func (tm *TaskManager) GetTask(id string) (*Task, bool) {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-
-	task, ok := tm.tasks[id]
-	return task, ok
-}
-
-// UpdateTask updates a task's status and progress
-func (tm *TaskManager) UpdateTask(id string, status string, progress float64) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	if task, ok := tm.tasks[id]; ok {
-		task.Status = status
-		task.Progress = progress
-		task.UpdatedAt = time.Now()
+func Paginate(items interface{}, page, limit int) (interface{}, int, error) {
+	v := reflect.ValueOf(items)
+	if v.Kind() != reflect.Slice {
+		return nil, 0, fmt.Errorf("items must be a slice")
 	}
+	
+	total := v.Len()
+	totalPages := (total + limit - 1) / limit
+	
+	if page < 1 {
+		page = 1
+	}
+	
+	start := (page - 1) * limit
+	end := start + limit
+	
+	if start >= total {
+		return reflect.MakeSlice(v.Type(), 0, 0).Interface(), totalPages, nil
+	}
+	
+	if end > total {
+		end = total
+	}
+	
+	return v.Slice(start, end).Interface(), totalPages, nil
 }
 
-// CompleteTask marks a task as completed
-func (tm *TaskManager) CompleteTask(id string, result interface{}) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	if task, ok := tm.tasks[id]; ok {
-		task.Status = "completed"
-		task.Progress = 100
-		task.Result = result
-		task.UpdatedAt = time.Now()
+func Chunk(items interface{}, size int) (interface{}, error) {
+	v := reflect.ValueOf(items)
+	if v.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("items must be a slice")
 	}
+	
+	length := v.Len()
+	chunks := reflect.MakeSlice(reflect.SliceOf(v.Type()), 0, (length+size-1)/size)
+	
+	for i := 0; i < length; i += size {
+		end := i + size
+		if end > length {
+			end = length
+		}
+		
+		chunk := v.Slice(i, end)
+		chunks = reflect.Append(chunks, chunk)
+	}
+	
+	return chunks.Interface(), nil
 }
 
-// FailTask marks a task as failed
-func (tm *TaskManager) FailTask(id string, err error) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	if task, ok := tm.tasks[id]; ok {
-		task.Status = "failed"
-		task.Error = err
-		task.UpdatedAt = time.Now()
+func Filter(items interface{}, predicate func(interface{}) bool) (interface{}, error) {
+	v := reflect.ValueOf(items)
+	if v.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("items must be a slice")
 	}
+	
+	result := reflect.MakeSlice(v.Type(), 0, v.Len())
+	
+	for i := 0; i < v.Len(); i++ {
+		item := v.Index(i).Interface()
+		if predicate(item) {
+			result = reflect.Append(result, v.Index(i))
+		}
+	}
+	
+	return result.Interface(), nil
+}
+
+func Map(items interface{}, mapper func(interface{}) interface{}) ([]interface{}, error) {
+	v := reflect.ValueOf(items)
+	if v.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("items must be a slice")
+	}
+	
+	result := make([]interface{}, v.Len())
+	
+	for i := 0; i < v.Len(); i++ {
+		item := v.Index(i).Interface()
+		result[i] = mapper(item)
+	}
+	
+	return result, nil
+}
+
+func Reduce(items interface{}, reducer func(interface{}, interface{}) interface{}, initial interface{}) (interface{}, error) {
+	v := reflect.ValueOf(items)
+	if v.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("items must be a slice")
+	}
+	
+	accumulator := initial
+	
+	for i := 0; i < v.Len(); i++ {
+		item := v.Index(i).Interface()
+		accumulator = reducer(accumulator, item)
+	}
+	
+	return accumulator, nil
 }
