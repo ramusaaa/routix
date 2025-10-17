@@ -7,9 +7,20 @@ set -e
 
 echo "🚀 Installing Routix CLI..."
 
+# Get latest version from GitHub API
+echo "🔍 Checking for latest version..."
+LATEST_VERSION=$(curl -s https://api.github.com/repos/ramusaaa/routix/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+if [ -z "$LATEST_VERSION" ]; then
+    echo "⚠️  Could not fetch latest version, using v0.2.7"
+    LATEST_VERSION="v0.2.7"
+else
+    echo "📋 Latest version: $LATEST_VERSION"
+fi
+
 # Install Routix
 echo "📦 Downloading and installing routix..."
-go install github.com/ramusaaa/routix/cmd/routix@latest
+go install github.com/ramusaaa/routix/cmd/routix@$LATEST_VERSION
 
 # Detect shell
 SHELL_NAME=$(basename "$SHELL")
