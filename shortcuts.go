@@ -13,15 +13,15 @@ func Quick() *Router {
 }
 
 // Route is a fluent interface for defining routes
-type Route struct {
+type RouteBuilder struct {
 	router *Router
 	method string
 	path   string
 }
 
 // NewRoute creates a new route builder
-func (r *Router) Route(method, path string) *Route {
-	return &Route{
+func (r *Router) Route(method, path string) *RouteBuilder {
+	return &RouteBuilder{
 		router: r,
 		method: method,
 		path:   path,
@@ -29,27 +29,27 @@ func (r *Router) Route(method, path string) *Route {
 }
 
 // Handle sets the handler for the route
-func (rt *Route) Handle(handler Handler) *Router {
+func (rt *RouteBuilder) Handle(handler Handler) *Router {
 	rt.router.Handle(rt.method, rt.path, handler)
 	return rt.router
 }
 
 // JSON is a shortcut for JSON responses
-func (rt *Route) JSON(data interface{}) *Router {
+func (rt *RouteBuilder) JSON(data interface{}) *Router {
 	return rt.Handle(func(c *Context) error {
 		return c.JSON(http.StatusOK, data)
 	})
 }
 
 // Text is a shortcut for text responses
-func (rt *Route) Text(text string) *Router {
+func (rt *RouteBuilder) Text(text string) *Router {
 	return rt.Handle(func(c *Context) error {
 		return c.String(http.StatusOK, "%s", text)
 	})
 }
 
 // Redirect is a shortcut for redirects
-func (rt *Route) Redirect(url string) *Router {
+func (rt *RouteBuilder) Redirect(url string) *Router {
 	return rt.Handle(func(c *Context) error {
 		return c.Redirect(http.StatusFound, url)
 	})
@@ -109,11 +109,11 @@ func (r *Router) Resource(path string, controller ResourceController) *Router {
 
 // ResourceController defines the interface for RESTful controllers
 type ResourceController struct {
-	Index  Handler // GET /resource
-	Create Handler // POST /resource
-	Show   Handler // GET /resource/:id
-	Update Handler // PUT /resource/:id
-	Delete Handler // DELETE /resource/:id
+	Index  Handler
+	Create Handler
+	Show   Handler
+	Update Handler
+	Delete Handler
 }
 
 // Middleware shortcuts

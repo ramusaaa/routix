@@ -7,7 +7,7 @@ import (
 )
 
 // DevMode indicates if the application is running in development mode
-var DevMode bool
+var DevMode = false
 
 // APIBuilder provides a fluent interface for building APIs
 type APIBuilder struct {
@@ -28,7 +28,7 @@ func NewAPI() *APIBuilder {
 
 // Dev enables development mode
 func (api *APIBuilder) Dev() *APIBuilder {
-	api.router.EnableDevMode()
+	DevMode = true
 	return api
 }
 
@@ -180,15 +180,7 @@ func (api *APIBuilder) Build() *Router {
 
 // Start starts the server
 func (api *APIBuilder) Start(addr string) error {
-	fmt.Println(`
-______                _    _        ______                                                       _
-| ___ \              | |  (_)       |  ___|                                                     | |
-| |_/ /  ___   _   _ | |_  _ __  __ | |_    _ __   __ _  _ __ ___    ___ __      __  ___   _ __ | | __
-|    /  / _ \ | | | || __|| |\ \/ / |  _|  | '__| / _` || _ ` _ \  / _ \\ \ /\ / / / _ \ | __|| |/ /
-| |\ \ | (_) || |_| || |_ | | >  <  | |    | |   | (_| || | | | | ||  __/ \ V  V / | (_) || |   |   <
-\_| \_| \___/  \__,_| \__||_|/_/\_\ \_|    |_|    \__,_||_| |_| |_| \___|  \_/\_/   \___/ |_|   |_|\_\
-
-`)
+	fmt.Println("Routix Framework")
 	fmt.Printf(" Routix API server starting on %s\n", addr)
 	
 	if DevMode {
