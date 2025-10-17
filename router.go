@@ -510,8 +510,11 @@ type APIBuilder struct {
 
 // NewAPI creates a new API builder
 func NewAPI() *APIBuilder {
+	router := New()
+	// Add logger middleware by default in development
+	router.Use(Logger())
 	return &APIBuilder{
-		router: New(),
+		router: router,
 	}
 }
 
@@ -628,6 +631,13 @@ func Logger() Middleware {
 		return func(c *Context) error {
 			start := time.Now()
 			
+			// Create a response recorder to capture the response
+			recorder := &responseRecorder{
+				ResponseWriter: c.Response,
+				statusCode:     200,
+			}
+			c.Response = recorder
+			
 			// Call the next handler
 			err := next(c)
 			
@@ -635,10 +645,38 @@ func Logger() Middleware {
 			duration := time.Since(start)
 			method := c.Request.Method
 			path := c.Request.URL.Path
+			status := recorder.statusCode
 			
-			fmt.Printf("[%s] %s %v - %v\n", method, path, duration, err)
+			statusColor := getStatusColor(status)
+			fmt.Printf("[%s] %s %s%d\033[0m %v\n", method, path, statusColor, status, duration)
 			
 			return err
 		}
+	}
+}
+
+// responseRecorder captures response data for logging
+type responseRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (r *responseRecorder) WriteHeader(statusCode int) {
+	r.statusCode = statusCode
+	r.ResponseWriter.WriteHeader(statusCode)
+}
+
+func getStatusColor(status int) string {
+	switch {
+	case status >= 200 && status < 300:
+		return "\033[32m" // Green
+	case status >= 300 && status < 400:
+		return "\033[33m" // Yellow
+	case status >= 400 && status < 500:
+		return "\033[31m" // Red
+	case status >= 500:
+		return "\033[35m" // Magenta
+	default:
+		return "\033[0m" // Reset
 	}
 }
