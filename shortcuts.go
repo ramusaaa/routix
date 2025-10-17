@@ -135,12 +135,6 @@ func (r *Router) WithTimeout(duration string) *Router {
 	return r.Use(Timeout(parseDuration(duration)))
 }
 
-// Helper function to parse duration strings
-import (
-	"net/http"
-	"time"
-)
-
 func parseDuration(duration string) time.Duration {
 	// Simple implementation - in real use, use time.ParseDuration
 	switch duration {
