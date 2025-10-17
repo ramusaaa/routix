@@ -49,11 +49,39 @@ Routix is a high-performance HTTP framework for Go that brings the elegance and 
 
 ### Installation
 
+**🎯 Easy Install (Recommended)**
+```bash
+# One-command install with automatic PATH setup
+curl -sSL https://raw.githubusercontent.com/ramusaaa/routix/main/install.sh | bash
+```
+
+**📦 Manual Install**
 ```bash
 # Install the CLI tool
 go install github.com/ramusaaa/routix/cmd/routix@latest
 
-# Or use as a library
+# Make sure Go's bin directory is in your PATH
+# Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export PATH="$HOME/go/bin:$PATH"
+
+# Reload your shell or run:
+source ~/.zshrc  # or ~/.bashrc
+
+# Verify installation
+routix --version
+```
+
+**⚡ One-line manual install**
+```bash
+# For zsh users (macOS default)
+go install github.com/ramusaaa/routix/cmd/routix@latest && echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+
+# For bash users
+go install github.com/ramusaaa/routix/cmd/routix@latest && echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+**📚 Use as a library**
+```bash
 go get github.com/ramusaaa/routix@latest
 ```
 
