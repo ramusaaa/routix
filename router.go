@@ -108,6 +108,12 @@ func (r *Router) Handle(method, path string, handler Handler) {
 	}
 
 	root := r.trees[method]
+	
+	if path == "/" {
+		root.handlers[method] = handler
+		return
+	}
+	
 	parts := strings.Split(path, "/")[1:]
 
 	for i, part := range parts {
@@ -257,7 +263,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	ctx := getContextFromPool(req, w, params, query, body)
 	defer putContextToPool(ctx)
 
-	handler, found := r.findHandlerOptimized(root, path, params)
+	handler, found := r.findHandlerOptimized(root, path, method, params)
 	if !found {
 		r.notFound(ctx)
 		return
@@ -278,12 +284,16 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (r *Router) findHandlerOptimized(root *node, path string, params map[string]string) (Handler, bool) {
+func (r *Router) findHandlerOptimized(root *node, path, method string, params map[string]string) (Handler, bool) {
 	if path == "/" {
-		if handler, ok := root.handlers["GET"]; ok {
-			return handler, true
+		for handlerMethod, handler := range root.handlers {
+			if handlerMethod == method {
+				return handler, true
+			}
 		}
+		return nil, false
 	}
+	
 	pathLen := len(path)
 	if pathLen == 0 {
 		return nil, false
@@ -331,17 +341,16 @@ func (r *Router) findHandlerOptimized(root *node, path string, params map[string
 		return nil, false
 	}
 
-	for method, handler := range current.handlers {
-		if method != "" {
-			return handler, true
-		}
+	// Check if handler exists for this method
+	if handler, ok := current.handlers[method]; ok {
+		return handler, true
 	}
 	
 	return nil, false
 }
 
-func (r *Router) findHandler(root *node, path string, params map[string]string) (Handler, bool) {
-	return r.findHandlerOptimized(root, path, params)
+func (r *Router) findHandler(root *node, path, method string, params map[string]string) (Handler, bool) {
+	return r.findHandlerOptimized(root, path, method, params)
 }
 
 func (r *Router) Group(prefix string) *Group {
