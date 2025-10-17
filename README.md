@@ -58,7 +58,7 @@ curl -sSL https://raw.githubusercontent.com/ramusaaa/routix/main/install.sh | ba
 **📦 Manual Install**
 ```bash
 # Install the CLI tool
-go install github.com/ramusaaa/routix/cmd/routix@latest
+go install github.com/ramusaaa/routix/cmd/routix@v0.2.1
 
 # Make sure Go's bin directory is in your PATH
 # Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.)
