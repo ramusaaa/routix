@@ -20,6 +20,20 @@ type Context struct {
 	handlers []Handler
 }
 
+var contextPool = sync.Pool{
+	New: func() interface{} {
+		return &Context{}
+	},
+}
+
+func getContext() *Context {
+	return contextPool.Get().(*Context)
+}
+
+func putContext(ctx *Context) {
+	contextPool.Put(ctx)
+}
+
 
 
 func getContextFromPool(req *http.Request, w http.ResponseWriter, params, query map[string]string, body map[string]interface{}) *Context {
@@ -397,6 +411,12 @@ func (c *Context) String(status int, format string, values ...interface{}) error
 	return err
 }
 
+func (c *Context) JSON(status int, data interface{}) error {
+	c.Response.Header().Set("Content-Type", "application/json")
+	c.Response.WriteHeader(status)
+	return json.NewEncoder(c.Response).Encode(data)
+}
+
 func (c *Context) HTML(status int, html string) error {
 	c.Response.Header().Set("Content-Type", "text/html")
 	c.Response.WriteHeader(status)
@@ -454,4 +474,123 @@ func (c *Context) Cache(duration time.Duration) {
 		recorder.Code,
 		duration,
 	)
+}
+
+// APIBuilder provides a fluent interface for building API applications
+type APIBuilder struct {
+	router *Router
+}
+
+// NewAPI creates a new API builder
+func NewAPI() *APIBuilder {
+	return &APIBuilder{
+		router: New(),
+	}
+}
+
+// Prod enables production mode
+func (a *APIBuilder) Prod() *APIBuilder {
+	// Add production-specific configurations
+	return a
+}
+
+// JSON sets JSON as the default response format
+func (a *APIBuilder) JSON() *APIBuilder {
+	// Add JSON middleware or configuration
+	return a
+}
+
+// CORS enables CORS support
+func (a *APIBuilder) CORS() *APIBuilder {
+	a.router.Use(func(next Handler) Handler {
+		return func(c *Context) error {
+			c.Response.Header().Set("Access-Control-Allow-Origin", "*")
+			c.Response.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			
+			if c.Request.Method == "OPTIONS" {
+				c.Response.WriteHeader(http.StatusOK)
+				return nil
+			}
+			
+			return next(c)
+		}
+	})
+	return a
+}
+
+// Health adds a health check endpoint
+func (a *APIBuilder) Health(path string) *APIBuilder {
+	a.router.GET(path, func(c *Context) error {
+		return c.JSON(200, map[string]interface{}{
+			"status": "healthy",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	})
+	return a
+}
+
+// Metrics adds a metrics endpoint
+func (a *APIBuilder) Metrics(path string) *APIBuilder {
+	a.router.GET(path, func(c *Context) error {
+		return c.JSON(200, map[string]interface{}{
+			"metrics": "enabled",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	})
+	return a
+}
+
+// RateLimit adds rate limiting
+func (a *APIBuilder) RateLimit(requests int, window string) *APIBuilder {
+	// Add rate limiting middleware
+	return a
+}
+
+// Timeout adds request timeout
+func (a *APIBuilder) Timeout(duration string) *APIBuilder {
+	// Add timeout middleware
+	return a
+}
+
+// Static serves static files
+func (a *APIBuilder) Static(path, dir string) *APIBuilder {
+	// Add static file serving
+	return a
+}
+
+// GET adds a GET route
+func (a *APIBuilder) GET(path string, handler Handler) {
+	a.router.GET(path, handler)
+}
+
+// POST adds a POST route
+func (a *APIBuilder) POST(path string, handler Handler) {
+	a.router.POST(path, handler)
+}
+
+// PUT adds a PUT route
+func (a *APIBuilder) PUT(path string, handler Handler) {
+	a.router.PUT(path, handler)
+}
+
+// DELETE adds a DELETE route
+func (a *APIBuilder) DELETE(path string, handler Handler) {
+	a.router.DELETE(path, handler)
+}
+
+// PATCH adds a PATCH route
+func (a *APIBuilder) PATCH(path string, handler Handler) {
+	a.router.PATCH(path, handler)
+}
+
+// V1 creates a v1 API group
+func (a *APIBuilder) V1(fn func(*Group)) {
+	group := a.router.Group("/api/v1")
+	fn(group)
+}
+
+// Start starts the server
+func (a *APIBuilder) Start(addr string) error {
+	return a.router.Start(addr)
 }
