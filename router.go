@@ -79,6 +79,33 @@ type node struct {
 
 type Middleware func(Handler) Handler
 
+// Error represents a Routix error
+type Error struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *Error) Error() string {
+	return e.Message
+}
+
+func (e *Error) ToResponse() map[string]interface{} {
+	return map[string]interface{}{
+		"error": map[string]interface{}{
+			"code":    e.Code,
+			"message": e.Message,
+		},
+	}
+}
+
+// NewError creates a new Routix error
+func NewError(code int, message string) *Error {
+	return &Error{
+		Code:    code,
+		Message: message,
+	}
+}
+
 func New() *Router {
 	return &Router{
 		trees: make(map[string]*node),
@@ -593,4 +620,25 @@ func (a *APIBuilder) V1(fn func(*Group)) {
 // Start starts the server
 func (a *APIBuilder) Start(addr string) error {
 	return a.router.Start(addr)
+}
+
+// Logger middleware for logging requests
+func Logger() Middleware {
+	return func(next Handler) Handler {
+		return func(c *Context) error {
+			start := time.Now()
+			
+			// Call the next handler
+			err := next(c)
+			
+			// Log the request
+			duration := time.Since(start)
+			method := c.Request.Method
+			path := c.Request.URL.Path
+			
+			fmt.Printf("[%s] %s %v - %v\n", method, path, duration, err)
+			
+			return err
+		}
+	}
 }
