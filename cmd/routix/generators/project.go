@@ -27,7 +27,7 @@ type ProjectConfig struct {
 func GenerateGoMod(projectName string, config ProjectConfig) {
 	// Start with basic requirements
 	requirements := []string{
-		"github.com/ramusaaa/routix v0.2.0",
+		"github.com/ramusaaa/routix v0.2.3",
 	}
 
 	// Add database dependencies

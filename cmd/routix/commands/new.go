@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/ramusaaa/routix/cmd/routix/generators"
@@ -30,6 +31,9 @@ func NewProject(args []string) {
 
 	fmt.Printf("\n📦 Generating project structure...\n")
 	generateProjectStructure(projectName, config)
+
+	fmt.Printf("\n📥 Installing dependencies...\n")
+	runGoModTidy(projectName)
 
 	fmt.Printf("\n✅ Project created successfully!\n\n")
 	printNextSteps(projectName, config)
@@ -238,21 +242,45 @@ func createDirectoryStructure(projectName string, config generators.ProjectConfi
 	}
 }
 
+func runGoModTidy(projectName string) {
+	// Change to project directory and run go mod tidy
+	originalDir, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("  ⚠️  Warning: Could not get current directory: %v\n", err)
+		return
+	}
+
+	err = os.Chdir(projectName)
+	if err != nil {
+		fmt.Printf("  ⚠️  Warning: Could not change to project directory: %v\n", err)
+		return
+	}
+	defer os.Chdir(originalDir)
+
+	// Import exec package at the top of the file
+	cmd := exec.Command("go", "mod", "tidy")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("  ⚠️  Warning: go mod tidy failed: %v\n", err)
+		fmt.Printf("  Output: %s\n", string(output))
+		return
+	}
+
+	fmt.Printf("  ✓ Dependencies installed successfully\n")
+}
+
 func printNextSteps(projectName string, config generators.ProjectConfig) {
 	fmt.Printf("📋 Next steps:\n\n")
 	fmt.Printf("  1. Navigate to your project:\n")
 	fmt.Printf("     cd %s\n\n", projectName)
 	
-	fmt.Printf("  2. Install dependencies:\n")
-	fmt.Printf("     go mod tidy\n\n")
-	
 	if config.UseDatabase {
-		fmt.Printf("  3. Setup database:\n")
+		fmt.Printf("  2. Setup database:\n")
 		fmt.Printf("     - Update .env with your database credentials\n")
 		fmt.Printf("     - Run: routix migrate\n\n")
 	}
 	
-	fmt.Printf("  4. Start development server:\n")
+	fmt.Printf("  3. Start development server:\n")
 	fmt.Printf("     routix serve\n\n")
 	
 	fmt.Printf("🌐 Your API will be available at: http://localhost:8080\n")
