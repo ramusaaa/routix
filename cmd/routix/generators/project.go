@@ -25,60 +25,59 @@ type ProjectConfig struct {
 }
 
 func GenerateGoMod(projectName string, config ProjectConfig) {
+	// Start with basic requirements
+	requirements := []string{
+		"github.com/ramusaaa/routix v0.2.0",
+	}
+
+	// Add database dependencies
+	if config.UseDatabase {
+		requirements = append(requirements, "gorm.io/gorm v1.25.5")
+		
+		switch config.DatabaseType {
+		case "postgres":
+			requirements = append(requirements, "gorm.io/driver/postgres v1.5.4")
+		case "mysql":
+			requirements = append(requirements, "gorm.io/driver/mysql v1.5.2")
+		case "sqlite":
+			requirements = append(requirements, "gorm.io/driver/sqlite v1.5.4")
+		}
+	}
+
+	// Add auth dependencies
+	if config.UseAuth {
+		requirements = append(requirements, 
+			"github.com/golang-jwt/jwt/v5 v5.2.0",
+			"golang.org/x/crypto v0.17.0",
+		)
+	}
+
+	// Add cache dependencies
+	if config.UseCache {
+		requirements = append(requirements, "github.com/redis/go-redis/v9 v9.3.0")
+	}
+
+	// Add WebSocket dependencies
+	if config.UseWebSocket {
+		requirements = append(requirements, "github.com/gorilla/websocket v1.5.1")
+	}
+
+	// Build the go.mod content
 	content := fmt.Sprintf(`module %s
 
 go 1.21
 
-require (
-	github.com/ramusaaa/routix v0.2.0
-)`, projectName)
+require (`, projectName)
 
-	if config.UseDatabase {
-		content += `
-
-require (
-	gorm.io/gorm v1.25.5`
-		
-		switch config.DatabaseType {
-		case "postgres":
-			content += `
-	gorm.io/driver/postgres v1.5.4`
-		case "mysql":
-			content += `
-	gorm.io/driver/mysql v1.5.2`
-		case "sqlite":
-			content += `
-	gorm.io/driver/sqlite v1.5.4`
+	for i, req := range requirements {
+		if i == 0 {
+			content += fmt.Sprintf("\n\t%s", req)
+		} else {
+			content += fmt.Sprintf("\n\t%s", req)
 		}
-		
-		content += `
-)`
 	}
 
-	if config.UseAuth {
-		content += `
-
-require (
-	github.com/golang-jwt/jwt/v5 v5.2.0
-	golang.org/x/crypto v0.17.0
-)`
-	}
-
-	if config.UseCache {
-		content += `
-
-require (
-	github.com/redis/go-redis/v9 v9.3.0
-)`
-	}
-
-	if config.UseWebSocket {
-		content += `
-
-require (
-	github.com/gorilla/websocket v1.5.1
-)`
-	}
+	content += "\n)"
 
 	writeFile(filepath.Join(projectName, "go.mod"), content)
 }
