@@ -51,7 +51,7 @@ Routix is a high-performance HTTP framework for Go that brings the elegance and 
 
 ```bash
 # Install the CLI tool
-go install github.com/ramusaaa/routix/cmd/routix@latest
+go install github.com/ramusaaa/routix/cmd/routix@v0.2.1
 
 # Or use as a library
 go get github.com/ramusaaa/routix@latest
