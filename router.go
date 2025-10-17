@@ -20,17 +20,10 @@ type Context struct {
 	handlers []Handler
 }
 
-var contextPool = sync.Pool{
-	New: func() interface{} {
-		return &Context{
-			Params: make(map[string]string, 8),
-			Query:  make(map[string]string, 8),
-		}
-	},
-}
+
 
 func getContextFromPool(req *http.Request, w http.ResponseWriter, params, query map[string]string, body map[string]interface{}) *Context {
-	ctx := contextPool.Get().(*Context)
+	ctx := getContext()
 	ctx.Request = req
 	ctx.Response = w
 	ctx.Params = params
@@ -47,7 +40,7 @@ func putContextToPool(ctx *Context) {
 	ctx.Query = nil
 	ctx.Body = nil
 	ctx.handlers = nil
-	contextPool.Put(ctx)
+	putContext(ctx)
 }
 
 type Handler func(*Context) error
@@ -59,6 +52,7 @@ type Router struct {
 	notMethod  Handler
 	middleware []Middleware
 	cache      sync.Map
+	devMode    bool
 }
 
 type node struct {
@@ -92,6 +86,12 @@ func New() *Router {
 
 func (r *Router) Use(middleware ...Middleware) *Router {
 	r.middleware = append(r.middleware, middleware...)
+	return r
+}
+
+// EnableDevMode enables development mode for the router
+func (r *Router) EnableDevMode() *Router {
+	r.devMode = true
 	return r
 }
 
@@ -418,7 +418,17 @@ func (c *Context) SetCookie(cookie *http.Cookie) {
 }
 
 func (r *Router) Start(addr string) error {
-	fmt.Printf("🚀 Routix server starting on %s\n", addr)
+	fmt.Println(`
+______                _    _        ______                                                       _
+| ___ \              | |  (_)       |  ___|                                                     | |
+| |_/ /  ___   _   _ | |_  _ __  __ | |_    _ __   __ _  _ __ ___    ___ __      __  ___   _ __ | | __
+|    /  / _ \ | | | || __|| |\ \/ / |  _|  | '__| / _` || _ ` _ \  / _ \\ \ /\ / / / _ \ | __|| |/ /
+| |\ \ | (_) || |_| || |_ | | >  <  | |    | |   | (_| || | | | | ||  __/ \ V  V / | (_) || |   |   <
+\_| \_| \___/  \__,_| \__||_|/_/\_\ \_|    |_|    \__,_||_| |_| |_| \___|  \_/\_/   \___/ |_|   |_|\_\
+
+
+`)
+	fmt.Printf(" Routix server starting on %s\n", addr)
 	return http.ListenAndServe(addr, r)
 }
 

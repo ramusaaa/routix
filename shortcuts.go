@@ -28,29 +28,29 @@ func (r *Router) Route(method, path string) *Route {
 	}
 }
 
-// Handler sets the handler for the route
-func (rt *Route) Handler(handler Handler) *Router {
+// Handle sets the handler for the route
+func (rt *Route) Handle(handler Handler) *Router {
 	rt.router.Handle(rt.method, rt.path, handler)
 	return rt.router
 }
 
 // JSON is a shortcut for JSON responses
 func (rt *Route) JSON(data interface{}) *Router {
-	return rt.Handler(func(c *Context) error {
+	return rt.Handle(func(c *Context) error {
 		return c.JSON(http.StatusOK, data)
 	})
 }
 
 // Text is a shortcut for text responses
 func (rt *Route) Text(text string) *Router {
-	return rt.Handler(func(c *Context) error {
-		return c.String(http.StatusOK, text)
+	return rt.Handle(func(c *Context) error {
+		return c.String(http.StatusOK, "%s", text)
 	})
 }
 
 // Redirect is a shortcut for redirects
 func (rt *Route) Redirect(url string) *Router {
-	return rt.Handler(func(c *Context) error {
+	return rt.Handle(func(c *Context) error {
 		return c.Redirect(http.StatusFound, url)
 	})
 }

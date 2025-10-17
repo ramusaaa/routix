@@ -1,13 +1,14 @@
 package routix
 
 import (
+	"fmt"
 	"path/filepath"
 	"reflect"
 )
 
 type Module struct {
 	Path        string
-	Routes      []Route
+	Routes      []ModuleRoute
 	Middleware  []Middleware
 	Services    map[reflect.Type]interface{}
 	SubModules  []*Module
@@ -27,7 +28,7 @@ type ModuleConfig struct {
 	Middleware  []Middleware
 }
 
-type Route struct {
+type ModuleRoute struct {
 	Method  string
 	Path    string
 	Handler Handler
@@ -51,7 +52,7 @@ func (m *Module) Use(middleware ...Middleware) {
 }
 
 func (m *Module) AddRoute(method, path string, handler Handler) {
-	m.Routes = append(m.Routes, Route{
+	m.Routes = append(m.Routes, ModuleRoute{
 		Method:  method,
 		Path:    path,
 		Handler: handler,
