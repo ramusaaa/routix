@@ -184,18 +184,36 @@ func main() {
 }
 
 func generateFullstackMain(config ProjectConfig) string {
-	return `package main
+	imports := []string{
+		`"github.com/ramusaaa/routix"`,
+		`"` + config.Name + `/config"`,
+		`"` + config.Name + `/routes"`,
+	}
+
+	if config.UseDatabase {
+		imports = append(imports, `"`+config.Name+`/database"`)
+	}
+
+	content := `package main
 
 import (
-	"github.com/ramusaaa/routix"
-	"` + config.Name + `/config"
-	"` + config.Name + `/routes"
+	` + strings.Join(imports, "\n\t") + `
 )
 
 func main() {
 	cfg := config.Load()
 
-	app := routix.NewAPI().
+	// Initialize database
+`
+
+	if config.UseDatabase {
+		content += `	db := database.Connect(cfg)
+	defer database.Close(db)
+
+`
+	}
+
+	content += `	app := routix.NewAPI().
 		Prod().
 		JSON().
 		CORS()
@@ -204,26 +222,58 @@ func main() {
 	app.Static("/static", "./public")
 
 	// Register routes
-	routes.RegisterWeb(app)
-	routes.RegisterAPI(app)
+	routes.RegisterWeb(app`
+
+	if config.UseDatabase {
+		content += `, db`
+	}
+
+	content += `)
+	routes.RegisterAPI(app`
+
+	if config.UseDatabase {
+		content += `, db`
+	}
+
+	content += `)
 
 	app.Start(":" + cfg.Port)
 }`
+
+	return content
 }
 
 func generateMicroserviceMain(config ProjectConfig) string {
-	return `package main
+	imports := []string{
+		`"github.com/ramusaaa/routix"`,
+		`"` + config.Name + `/config"`,
+		`"` + config.Name + `/routes"`,
+	}
+
+	if config.UseDatabase {
+		imports = append(imports, `"`+config.Name+`/database"`)
+	}
+
+	content := `package main
 
 import (
-	"github.com/ramusaaa/routix"
-	"` + config.Name + `/config"
-	"` + config.Name + `/routes"
+	` + strings.Join(imports, "\n\t") + `
 )
 
 func main() {
 	cfg := config.Load()
 
-	app := routix.NewAPI().
+	// Initialize database
+`
+
+	if config.UseDatabase {
+		content += `	db := database.Connect(cfg)
+	defer database.Close(db)
+
+`
+	}
+
+	content += `	app := routix.NewAPI().
 		Prod().
 		JSON().
 		CORS().
@@ -232,10 +282,18 @@ func main() {
 		RateLimit(1000, "1m").
 		Timeout("30s")
 
-	routes.RegisterAPI(app)
+	routes.RegisterAPI(app`
+
+	if config.UseDatabase {
+		content += `, db`
+	}
+
+	content += `)
 
 	app.Start(":" + cfg.Port)
 }`
+
+	return content
 }
 
 func GenerateEnv(projectName string, config ProjectConfig) {
