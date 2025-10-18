@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/ramusaaa/routix/cmd/routix/commands"
 )
@@ -16,28 +17,35 @@ func main() {
 	command := os.Args[1]
 	args := os.Args[2:]
 
-	switch command {
-	case "new", "create":
+	switch {
+	case command == "new" || command == "create":
 		commands.NewProject(args)
-	case "make":
-		commands.MakeCommand(args)
-	case "serve", "dev":
+	case command == "make" || strings.HasPrefix(command, "make:"):
+		if strings.HasPrefix(command, "make:") {
+			// Handle make:controller, make:model, etc.
+			makeType := strings.TrimPrefix(command, "make:")
+			makeArgs := append([]string{makeType}, args...)
+			commands.MakeCommand(makeArgs)
+		} else {
+			commands.MakeCommand(args)
+		}
+	case command == "serve" || command == "dev":
 		commands.ServeCommand(args)
-	case "build":
+	case command == "build":
 		commands.BuildCommand(args)
-	case "migrate":
+	case command == "migrate":
 		commands.MigrateCommand(args)
-	case "seed":
+	case command == "seed":
 		commands.SeedCommand(args)
-	case "route":
+	case command == "route":
 		commands.RouteCommand(args)
-	case "test":
+	case command == "test":
 		commands.TestCommand(args)
-	case "install":
+	case command == "install":
 		commands.InstallCommand(args)
-	case "version", "--version", "-v":
+	case command == "version" || command == "--version" || command == "-v":
 		commands.ShowVersion()
-	case "help", "--help", "-h":
+	case command == "help" || command == "--help" || command == "-h":
 		commands.ShowHelp()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
