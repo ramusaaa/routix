@@ -27,7 +27,7 @@ type ProjectConfig struct {
 func GenerateGoMod(projectName string, config ProjectConfig) {
 	// Start with basic requirements
 	requirements := []string{
-		"github.com/ramusaaa/routix v0.3.4",
+		"github.com/ramusaaa/routix v0.3.8",
 	}
 
 	// Add database dependencies
@@ -516,7 +516,7 @@ func (wc *WelcomeController) Index(c *routix.Context) error {
 	return wc.Success(c, map[string]any{
 		"message": "Welcome to ` + projectName + `!",
 		"version": "1.0.0",
-		"framework": "Routix v0.3.4",
+		"framework": "Routix v0.3.8",
 	})
 }
 

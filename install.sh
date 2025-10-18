@@ -15,25 +15,54 @@ LATEST_VERSION=""
 
 # Method 1: GitHub API
 if [ -z "$LATEST_VERSION" ]; then
-    LATEST_VERSION=$(curl -s --connect-timeout 5 --max-time 10 https://api.github.com/repos/ramusaaa/routix/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
+    echo "🔍 Trying GitHub API..."
+    API_RESPONSE=$(curl -s --connect-timeout 5 --max-time 10 https://api.github.com/repos/ramusaaa/routix/releases/latest 2>/dev/null)
+    if [ $? -eq 0 ] && [ -n "$API_RESPONSE" ]; then
+        LATEST_VERSION=$(echo "$API_RESPONSE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
+        if [ -n "$LATEST_VERSION" ]; then
+            echo "✅ Found version via API: $LATEST_VERSION"
+        fi
+    else
+        echo "⚠️  GitHub API request failed"
+    fi
 fi
 
 # Method 2: GitHub releases page
 if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "" ]; then
-    LATEST_VERSION=$(curl -s --connect-timeout 5 --max-time 10 https://github.com/ramusaaa/routix/releases/latest 2>/dev/null | grep -o 'tag/v[0-9]\+\.[0-9]\+\.[0-9]\+' | head -1 | sed 's/tag\///')
+    echo "🔍 Trying GitHub releases page..."
+    RELEASES_PAGE=$(curl -s --connect-timeout 5 --max-time 10 https://github.com/ramusaaa/routix/releases/latest 2>/dev/null)
+    if [ $? -eq 0 ] && [ -n "$RELEASES_PAGE" ]; then
+        LATEST_VERSION=$(echo "$RELEASES_PAGE" | grep -o 'tag/v[0-9]\+\.[0-9]\+\.[0-9]\+' | head -1 | sed 's/tag\///')
+        if [ -n "$LATEST_VERSION" ]; then
+            echo "✅ Found version via releases page: $LATEST_VERSION"
+        fi
+    else
+        echo "⚠️  GitHub releases page request failed"
+    fi
 fi
 
 # Fallback to known latest version
 if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "" ]; then
-    echo "⚠️  Could not fetch latest version, using v0.3.7"
-    LATEST_VERSION="v0.3.7"
+    echo "⚠️  Could not fetch latest version, using v0.3.8"
+    LATEST_VERSION="v0.3.8"
 else
     echo "📋 Latest version: $LATEST_VERSION"
 fi
 
 # Install Routix
 echo "📦 Downloading and installing routix..."
-go install github.com/ramusaaa/routix/cmd/routix@$LATEST_VERSION
+if [ "$LATEST_VERSION" = "v0.3.8" ]; then
+    # If using fallback version, try @latest first
+    echo "🔄 Trying @latest first..."
+    if go install github.com/ramusaaa/routix/cmd/routix@latest 2>/dev/null; then
+        echo "✅ Installed latest version from Go modules"
+    else
+        echo "⚠️  @latest failed, using fallback version"
+        go install github.com/ramusaaa/routix/cmd/routix@$LATEST_VERSION
+    fi
+else
+    go install github.com/ramusaaa/routix/cmd/routix@$LATEST_VERSION
+fi
 
 # Detect shell
 SHELL_NAME=$(basename "$SHELL")

@@ -141,7 +141,7 @@ func getWelcomePage(projectName string) string {
 		"<p>Laravel-inspired CLI tools and project structure.</p>" +
 		"</div>" +
 		"</div>" +
-		"<p>Built with Routix v0.2.0 - Laravel-inspired Go Web Framework</p>" +
+		"<p>Built with Routix v0.3.8 - Laravel-inspired Go Web Framework</p>" +
 		"</div>" +
 		"</body>" +
 		"</html>"
