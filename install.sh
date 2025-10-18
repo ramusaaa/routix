@@ -9,11 +9,11 @@ echo "🚀 Installing Routix CLI..."
 
 # Get latest version from GitHub API
 echo "🔍 Checking for latest version..."
-LATEST_VERSION=$(curl -s https://api.github.com/repos/ramusaaa/routix/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_VERSION=$(curl -s --connect-timeout 10 https://api.github.com/repos/ramusaaa/routix/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
 
-if [ -z "$LATEST_VERSION" ]; then
-    echo "⚠️  Could not fetch latest version, using v0.2.7"
-    LATEST_VERSION="v0.2.7"
+if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "" ]; then
+    echo "⚠️  Could not fetch latest version, using v0.3.0"
+    LATEST_VERSION="v0.3.0"
 else
     echo "📋 Latest version: $LATEST_VERSION"
 fi
