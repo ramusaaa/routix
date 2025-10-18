@@ -20,19 +20,7 @@ type Context struct {
 	handlers []Handler
 }
 
-var contextPool = sync.Pool{
-	New: func() any {
-		return &Context{}
-	},
-}
 
-func getContext() *Context {
-	return contextPool.Get().(*Context)
-}
-
-func putContext(ctx *Context) {
-	contextPool.Put(ctx)
-}
 
 
 
@@ -79,35 +67,10 @@ type node struct {
 
 type Middleware func(Handler) Handler
 
-// Error represents a Routix error
-type Error struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
 
-func (e *Error) Error() string {
-	return e.Message
-}
-
-func (e *Error) ToResponse() map[string]any {
-	return map[string]any{
-		"error": map[string]any{
-			"code":    e.Code,
-			"message": e.Message,
-		},
-	}
-}
-
-// NewError creates a new Routix error
-func NewError(code int, message string) *Error {
-	return &Error{
-		Code:    code,
-		Message: message,
-	}
-}
 
 func New() *Router {
-	router := &Router{
+	return &Router{
 		trees: make(map[string]*node),
 		params: &sync.Pool{
 			New: func() interface{} {
@@ -122,12 +85,8 @@ func New() *Router {
 			http.Error(c.Response, "405 Method Not Allowed", http.StatusMethodNotAllowed)
 			return nil
 		},
+		devMode: true,
 	}
-	// Add logger middleware by default
-	router.Use(Logger())
-	// Enable dev mode by default
-	router.devMode = true
-	return router
 }
 
 func (r *Router) Use(middleware ...Middleware) *Router {
@@ -456,11 +415,7 @@ func (c *Context) String(status int, format string, values ...interface{}) error
 	return err
 }
 
-func (c *Context) JSON(status int, data any) error {
-	c.Response.Header().Set("Content-Type", "application/json")
-	c.Response.WriteHeader(status)
-	return json.NewEncoder(c.Response).Encode(data)
-}
+
 
 func (c *Context) HTML(status int, html string) error {
 	c.Response.Header().Set("Content-Type", "text/html")
@@ -521,183 +476,9 @@ func (c *Context) Cache(duration time.Duration) {
 	)
 }
 
-// APIBuilder provides a fluent interface for building API applications
-type APIBuilder struct {
-	router *Router
-}
 
-// NewAPI creates a new API builder
-func NewAPI() *APIBuilder {
-	router := New()
-	// Add logger middleware by default in development
-	router.Use(Logger())
-	return &APIBuilder{
-		router: router,
-	}
-}
 
-// Prod enables production mode
-func (a *APIBuilder) Prod() *APIBuilder {
-	// Add production-specific configurations
-	return a
-}
 
-// JSON sets JSON as the default response format
-func (a *APIBuilder) JSON() *APIBuilder {
-	// Add JSON middleware or configuration
-	return a
-}
-
-// CORS enables CORS support
-func (a *APIBuilder) CORS() *APIBuilder {
-	a.router.Use(func(next Handler) Handler {
-		return func(c *Context) error {
-			c.Response.Header().Set("Access-Control-Allow-Origin", "*")
-			c.Response.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			c.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			
-			if c.Request.Method == "OPTIONS" {
-				c.Response.WriteHeader(http.StatusOK)
-				return nil
-			}
-			
-			return next(c)
-		}
-	})
-	return a
-}
-
-// Health adds a health check endpoint
-func (a *APIBuilder) Health(path string) *APIBuilder {
-	a.router.GET(path, func(c *Context) error {
-		return c.JSON(200, map[string]any{
-			"status": "healthy",
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
-	})
-	return a
-}
-
-// Metrics adds a metrics endpoint
-func (a *APIBuilder) Metrics(path string) *APIBuilder {
-	a.router.GET(path, func(c *Context) error {
-		return c.JSON(200, map[string]any{
-			"metrics": "enabled",
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
-	})
-	return a
-}
-
-// RateLimit adds rate limiting
-func (a *APIBuilder) RateLimit(requests int, window string) *APIBuilder {
-	// Add rate limiting middleware
-	return a
-}
-
-// Timeout adds request timeout
-func (a *APIBuilder) Timeout(duration string) *APIBuilder {
-	// Add timeout middleware
-	return a
-}
-
-// Static serves static files
-func (a *APIBuilder) Static(path, dir string) *APIBuilder {
-	// Add static file serving
-	return a
-}
-
-// GET adds a GET route
-func (a *APIBuilder) GET(path string, handler Handler) {
-	a.router.GET(path, handler)
-}
-
-// POST adds a POST route
-func (a *APIBuilder) POST(path string, handler Handler) {
-	a.router.POST(path, handler)
-}
-
-// PUT adds a PUT route
-func (a *APIBuilder) PUT(path string, handler Handler) {
-	a.router.PUT(path, handler)
-}
-
-// DELETE adds a DELETE route
-func (a *APIBuilder) DELETE(path string, handler Handler) {
-	a.router.DELETE(path, handler)
-}
-
-// PATCH adds a PATCH route
-func (a *APIBuilder) PATCH(path string, handler Handler) {
-	a.router.PATCH(path, handler)
-}
-
-// V1 creates a v1 API group
-func (a *APIBuilder) V1(fn func(*Group)) {
-	group := a.router.Group("/api/v1")
-	fn(group)
-}
-
-// Start starts the server
-func (a *APIBuilder) Start(addr string) error {
-	return a.router.Start(addr)
-}
-
-// Logger middleware for logging requests
-func Logger() Middleware {
-	return func(next Handler) Handler {
-		return func(c *Context) error {
-			start := time.Now()
-			
-			// Create a response recorder to capture the response
-			recorder := &responseRecorder{
-				ResponseWriter: c.Response,
-				statusCode:     200,
-			}
-			c.Response = recorder
-			
-			// Call the next handler
-			err := next(c)
-			
-			// Log the request
-			duration := time.Since(start)
-			method := c.Request.Method
-			path := c.Request.URL.Path
-			status := recorder.statusCode
-			
-			statusColor := getStatusColor(status)
-			fmt.Printf("[%s] %s %s%d\033[0m %v\n", method, path, statusColor, status, duration)
-			
-			return err
-		}
-	}
-}
-
-// responseRecorder captures response data for logging
-type responseRecorder struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (r *responseRecorder) WriteHeader(statusCode int) {
-	r.statusCode = statusCode
-	r.ResponseWriter.WriteHeader(statusCode)
-}
-
-func getStatusColor(status int) string {
-	switch {
-	case status >= 200 && status < 300:
-		return "\033[32m" // Green
-	case status >= 300 && status < 400:
-		return "\033[33m" // Yellow
-	case status >= 400 && status < 500:
-		return "\033[31m" // Red
-	case status >= 500:
-		return "\033[35m" // Magenta
-	default:
-		return "\033[0m" // Reset
-	}
-}
 
 func getTreeKeys(trees map[string]*node) []string {
 	keys := make([]string, 0, len(trees))
