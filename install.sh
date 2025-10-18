@@ -25,8 +25,8 @@ fi
 
 # Fallback to known latest version
 if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "" ]; then
-    echo "⚠️  Could not fetch latest version, using v0.3.4"
-    LATEST_VERSION="v0.3.4"
+    echo "⚠️  Could not fetch latest version, using v0.3.5"
+    LATEST_VERSION="v0.3.5"
 else
     echo "📋 Latest version: $LATEST_VERSION"
 fi
