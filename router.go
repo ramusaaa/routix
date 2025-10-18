@@ -107,7 +107,7 @@ func NewError(code int, message string) *Error {
 }
 
 func New() *Router {
-	return &Router{
+	router := &Router{
 		trees: make(map[string]*node),
 		params: &sync.Pool{
 			New: func() interface{} {
@@ -123,6 +123,11 @@ func New() *Router {
 			return nil
 		},
 	}
+	// Add logger middleware by default
+	router.Use(Logger())
+	// Enable dev mode by default
+	router.devMode = true
+	return router
 }
 
 func (r *Router) Use(middleware ...Middleware) *Router {
@@ -306,6 +311,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	handler, found := r.findHandlerOptimized(root, path, method, params)
 	if !found {
+		if r.devMode {
+			fmt.Printf("🔍 Route not found: %s %s\n", method, path)
+		}
 		r.notFound(ctx)
 		return
 	}
