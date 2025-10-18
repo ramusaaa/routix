@@ -174,7 +174,7 @@ func main() {
 	r := routix.New()
 
 	r.GET("/", func(c *routix.Context) error {
-		return c.JSON(200, map[string]interface{}{
+		return c.JSON(200, map[string]any{
 			"message": "Hello from Routix!",
 		})
 	})
@@ -477,22 +477,22 @@ import (
 
 type BaseController struct{}
 
-func (bc *BaseController) Success(c *routix.Context, data interface{}) error {
-	return c.JSON(200, map[string]interface{}{
+func (bc *BaseController) Success(c *routix.Context, data any) error {
+	return c.JSON(200, map[string]any{
 		"status": "success",
 		"data":   data,
 	})
 }
 
 func (bc *BaseController) Error(c *routix.Context, code int, message string) error {
-	return c.JSON(code, map[string]interface{}{
+	return c.JSON(code, map[string]any{
 		"status":  "error",
 		"message": message,
 	})
 }
 
-func (bc *BaseController) Created(c *routix.Context, data interface{}) error {
-	return c.JSON(201, map[string]interface{}{
+func (bc *BaseController) Created(c *routix.Context, data any) error {
+	return c.JSON(201, map[string]any{
 		"status": "success",
 		"data":   data,
 	})
@@ -513,15 +513,15 @@ type WelcomeController struct {
 }
 
 func (wc *WelcomeController) Index(c *routix.Context) error {
-	return wc.Success(c, map[string]interface{}{
+	return wc.Success(c, map[string]any{
 		"message": "Welcome to ` + projectName + `!",
 		"version": "1.0.0",
-		"framework": "Routix v0.2.0",
+		"framework": "Routix v0.3.1",
 	})
 }
 
 func (wc *WelcomeController) Health(c *routix.Context) error {
-	return wc.Success(c, map[string]interface{}{
+	return wc.Success(c, map[string]any{
 		"status": "healthy",
 		"timestamp": "` + time.Now().Format(time.RFC3339) + `",
 	})

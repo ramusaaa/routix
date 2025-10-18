@@ -15,13 +15,13 @@ type Context struct {
 	Response http.ResponseWriter
 	Params   map[string]string
 	Query    map[string]string
-	Body     map[string]interface{}
+	Body     map[string]any
 	index    int8
 	handlers []Handler
 }
 
 var contextPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &Context{}
 	},
 }
@@ -36,7 +36,7 @@ func putContext(ctx *Context) {
 
 
 
-func getContextFromPool(req *http.Request, w http.ResponseWriter, params, query map[string]string, body map[string]interface{}) *Context {
+func getContextFromPool(req *http.Request, w http.ResponseWriter, params, query map[string]string, body map[string]any) *Context {
 	ctx := getContext()
 	ctx.Request = req
 	ctx.Response = w
@@ -89,9 +89,9 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
-func (e *Error) ToResponse() map[string]interface{} {
-	return map[string]interface{}{
-		"error": map[string]interface{}{
+func (e *Error) ToResponse() map[string]any {
+	return map[string]any{
+		"error": map[string]any{
 			"code":    e.Code,
 			"message": e.Message,
 		},
@@ -312,7 +312,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
-	var body map[string]interface{}
+	var body map[string]any
 	contentType := req.Header.Get("Content-Type")
 	if contentType == "application/json" && req.ContentLength > 0 {
 		json.NewDecoder(req.Body).Decode(&body)
@@ -458,7 +458,7 @@ func (c *Context) String(status int, format string, values ...interface{}) error
 	return err
 }
 
-func (c *Context) JSON(status int, data interface{}) error {
+func (c *Context) JSON(status int, data any) error {
 	c.Response.Header().Set("Content-Type", "application/json")
 	c.Response.WriteHeader(status)
 	return json.NewEncoder(c.Response).Encode(data)
@@ -572,7 +572,7 @@ func (a *APIBuilder) CORS() *APIBuilder {
 // Health adds a health check endpoint
 func (a *APIBuilder) Health(path string) *APIBuilder {
 	a.router.GET(path, func(c *Context) error {
-		return c.JSON(200, map[string]interface{}{
+		return c.JSON(200, map[string]any{
 			"status": "healthy",
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
@@ -583,7 +583,7 @@ func (a *APIBuilder) Health(path string) *APIBuilder {
 // Metrics adds a metrics endpoint
 func (a *APIBuilder) Metrics(path string) *APIBuilder {
 	a.router.GET(path, func(c *Context) error {
-		return c.JSON(200, map[string]interface{}{
+		return c.JSON(200, map[string]any{
 			"metrics": "enabled",
 			"timestamp": time.Now().Format(time.RFC3339),
 		})

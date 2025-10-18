@@ -67,7 +67,7 @@ func RegisterAPI(app *routix.APIBuilder`
 	app.V1(func(v1 *routix.Group) {
 		// Add your API routes here
 		v1.GET("/status", func(c *routix.Context) error {
-			return c.JSON(200, map[string]interface{}{
+			return c.JSON(200, map[string]any{
 				"status": "ok",
 				"version": "1.0.0",
 			})

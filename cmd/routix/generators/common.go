@@ -482,7 +482,7 @@ func TestWelcomeEndpoint(t *testing.T) {
 	
 	// Add route
 	r.GET("/", func(c *routix.Context) error {
-		return c.JSON(200, map[string]interface{}{
+		return c.JSON(200, map[string]any{
 			"message": "Hello World",
 		})
 	})

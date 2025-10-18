@@ -125,7 +125,7 @@ type %s struct {
 }
 
 func (ctrl *%s) Index(c *routix.Context) error {
-	return ctrl.Success(c, map[string]interface{}{
+	return ctrl.Success(c, map[string]any{
 		"message": "Hello from %s",
 	})
 }`, name, name, name)
@@ -152,7 +152,7 @@ func (ctrl *%s) Index(c *routix.Context) error {
 // POST /resource
 func (ctrl *%s) Store(c *routix.Context) error {
 	// TODO: Implement store logic
-	return ctrl.Created(c, map[string]interface{}{
+	return ctrl.Created(c, map[string]any{
 		"message": "%s created successfully",
 	})
 }
@@ -161,7 +161,7 @@ func (ctrl *%s) Store(c *routix.Context) error {
 func (ctrl *%s) Show(c *routix.Context) error {
 	id := c.Params["id"]
 	// TODO: Implement show logic
-	return ctrl.Success(c, map[string]interface{}{
+	return ctrl.Success(c, map[string]any{
 		"id": id,
 	})
 }
@@ -170,7 +170,7 @@ func (ctrl *%s) Show(c *routix.Context) error {
 func (ctrl *%s) Update(c *routix.Context) error {
 	id := c.Params["id"]
 	// TODO: Implement update logic
-	return ctrl.Success(c, map[string]interface{}{
+	return ctrl.Success(c, map[string]any{
 		"id": id,
 		"message": "%s updated successfully",
 	})
@@ -180,7 +180,7 @@ func (ctrl *%s) Update(c *routix.Context) error {
 func (ctrl *%s) Destroy(c *routix.Context) error {
 	id := c.Params["id"]
 	// TODO: Implement destroy logic
-	return ctrl.Success(c, map[string]interface{}{
+	return ctrl.Success(c, map[string]any{
 		"message": "%s deleted successfully",
 	})
 }`, name, name, name, modelName, name, name, modelName, name, modelName)
