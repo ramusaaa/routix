@@ -72,6 +72,6 @@ For more information: https://github.com/ramusaaa/routix
 }
 
 func ShowVersion() {
-	fmt.Println("Routix CLI v0.3.3")
+	fmt.Println("Routix CLI v0.3.5")
 	fmt.Println("Go Web Framework")
 }
