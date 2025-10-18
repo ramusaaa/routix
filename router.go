@@ -146,6 +146,10 @@ func (r *Router) Handle(method, path string, handler Handler) {
 		path = "/" + path
 	}
 
+	if r.devMode {
+		fmt.Printf("📝 Registering route: %s %s\n", method, path)
+	}
+
 	if _, ok := r.trees[method]; !ok {
 		r.trees[method] = &node{
 			handlers: make(map[string]Handler),
@@ -268,6 +272,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	path := req.URL.Path
 	method := req.Method
 
+	if r.devMode {
+		fmt.Printf("🔍 Incoming request: %s %s\n", method, path)
+		fmt.Printf("🌳 Available trees: %v\n", getTreeKeys(r.trees))
+	}
+
 	if method == http.MethodGet {
 		if response, headers, code, ok := r.GetCachedResponse(path); ok {
 			for k, v := range headers {
@@ -280,6 +289,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	root, ok := r.trees[method]
 	if !ok {
+		if r.devMode {
+			fmt.Printf("❌ No tree found for method: %s\n", method)
+		}
 		r.notMethod(getContextFromPool(req, w, nil, nil, nil))
 		return
 	}
@@ -687,4 +699,12 @@ func getStatusColor(status int) string {
 	default:
 		return "\033[0m" // Reset
 	}
+}
+
+func getTreeKeys(trees map[string]*node) []string {
+	keys := make([]string, 0, len(trees))
+	for k := range trees {
+		keys = append(keys, k)
+	}
+	return keys
 }
