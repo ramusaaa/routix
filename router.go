@@ -160,7 +160,7 @@ func (r *Router) Handle(method, path string, handler Handler) {
 	root := r.trees[method]
 	
 	if path == "/" {
-		root.handlers[method] = handler
+		root.handlers["/"] = handler
 		return
 	}
 	
@@ -205,7 +205,7 @@ func (r *Router) Handle(method, path string, handler Handler) {
 		}
 
 		if i == len(parts)-1 {
-			root.handlers[method] = handler
+			root.handlers[path] = handler
 		}
 	}
 }
@@ -347,10 +347,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) findHandlerOptimized(root *node, path, method string, params map[string]string) (Handler, bool) {
 	if path == "/" {
-		for handlerMethod, handler := range root.handlers {
-			if handlerMethod == method {
-				return handler, true
-			}
+		if handler, ok := root.handlers["/"]; ok {
+			return handler, true
 		}
 		return nil, false
 	}
@@ -402,8 +400,8 @@ func (r *Router) findHandlerOptimized(root *node, path, method string, params ma
 		return nil, false
 	}
 
-	// Check if handler exists for this method
-	if handler, ok := current.handlers[method]; ok {
+	// Check if handler exists for this path
+	if handler, ok := current.handlers[path]; ok {
 		return handler, true
 	}
 	
