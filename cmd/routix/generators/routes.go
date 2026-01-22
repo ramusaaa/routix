@@ -151,7 +151,7 @@ func getWelcomePage(projectName string) string {
 		"<div class=\"logo\">R</div>" +
 		"<h1>" + projectName + " + Routix</h1>" +
 		"<p class=\"subtitle\">High-Performance Go Web Framework</p>" +
-		"<span class=\"version\">v0.3.8</span>" +
+		"<span class=\"version\">v0.3.10</span>" +
 		"<div class=\"buttons\">" +
 		"<a href=\"https://github.com/ramusaaa/routix\" class=\"btn btn-primary\" target=\"_blank\">📚 Read Docs</a>" +
 		"<a href=\"https://github.com/ramusaaa/routix\" class=\"btn btn-secondary\" target=\"_blank\">⭐ Star on GitHub</a>" +

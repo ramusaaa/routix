@@ -27,13 +27,13 @@ type ProjectConfig struct {
 func GenerateGoMod(projectName string, config ProjectConfig) {
 	// Start with basic requirements
 	requirements := []string{
-		"github.com/ramusaaa/routix v0.3.8",
+		"github.com/ramusaaa/routix v0.3.10",
 	}
 
 	// Add database dependencies
 	if config.UseDatabase {
 		requirements = append(requirements, "gorm.io/gorm v1.25.5")
-		
+
 		switch config.DatabaseType {
 		case "postgres":
 			requirements = append(requirements, "gorm.io/driver/postgres v1.5.4")
@@ -46,7 +46,7 @@ func GenerateGoMod(projectName string, config ProjectConfig) {
 
 	// Add auth dependencies
 	if config.UseAuth {
-		requirements = append(requirements, 
+		requirements = append(requirements,
 			"github.com/golang-jwt/jwt/v5 v5.2.0",
 			"golang.org/x/crypto v0.17.0",
 		)
@@ -458,10 +458,10 @@ func getEnv(key, defaultValue string) string {
 func GenerateAppStructure(projectName string, config ProjectConfig) {
 	// Generate base controller
 	generateBaseController(projectName)
-	
+
 	// Generate welcome controller
 	generateWelcomeController(projectName)
-	
+
 	// Generate base model if database is used
 	if config.UseDatabase {
 		generateBaseModel(projectName)
@@ -516,7 +516,7 @@ func (wc *WelcomeController) Index(c *routix.Context) error {
 	return wc.Success(c, map[string]any{
 		"message": "Welcome to ` + projectName + `!",
 		"version": "1.0.0",
-		"framework": "Routix v0.3.8",
+		"framework": "Routix v0.3.10",
 	})
 }
 
@@ -556,7 +556,7 @@ func writeFile(path, content string) {
 		return
 	}
 	defer file.Close()
-	
+
 	file.WriteString(content)
 	fmt.Printf("  ✓ Created %s\n", path)
 }

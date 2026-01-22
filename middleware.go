@@ -33,6 +33,8 @@
 package routix
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -337,10 +339,6 @@ func Compress() Middleware {
 				return next(c)
 			}
 
-			// Set headers
-			c.SetHeader("Content-Encoding", "gzip")
-			c.SetHeader("Vary", "Accept-Encoding")
-
 			// Create a response recorder
 			recorder := httptest.NewRecorder()
 
@@ -358,16 +356,32 @@ func Compress() Middleware {
 				return err
 			}
 
-			// Copy headers
+			// Copy headers (except Content-Length as it will change after compression)
 			for k, v := range recorder.Header() {
-				c.Response.Header()[k] = v
+				if k != "Content-Length" {
+					c.Response.Header()[k] = v
+				}
 			}
 
-			// Write status code
-			c.Response.WriteHeader(recorder.Code)
+			// Actually compress the response with gzip
+			var buf bytes.Buffer
+			gz := gzip.NewWriter(&buf)
+			_, err := gz.Write(recorder.Body.Bytes())
+			if err != nil {
+				// If compression fails, write uncompressed
+				c.Response.WriteHeader(recorder.Code)
+				c.Response.Write(recorder.Body.Bytes())
+				return nil
+			}
+			gz.Close()
 
-			// Write response without compression
-			c.Response.Write(recorder.Body.Bytes())
+			// Set gzip headers
+			c.SetHeader("Content-Encoding", "gzip")
+			c.SetHeader("Vary", "Accept-Encoding")
+
+			// Write status code and compressed body
+			c.Response.WriteHeader(recorder.Code)
+			c.Response.Write(buf.Bytes())
 
 			return nil
 		}

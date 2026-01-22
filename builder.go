@@ -174,7 +174,7 @@ func (api *APIBuilder) Start(addr string) error {
   ██║  ██║╚██████╔╝╚██████╔╝   ██║   ██║██╔╝ ██╗
   ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚═╝╚═╝  ╚═╝` + "\033[0m")
 	fmt.Println()
-	fmt.Println("  \033[1mRoutix Framework v0.3.8\033[0m")
+	fmt.Println("  \033[1mRoutix Framework v0.3.10\033[0m")
 	fmt.Println("  \033[90mPowered by Ramusa Software Corporation\033[0m")
 	fmt.Println()
 	fmt.Println("  \033[36m➜\033[0m  \033[1mLocal:\033[0m   \033[36mhttp://localhost" + addr + "/\033[0m")

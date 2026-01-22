@@ -58,7 +58,7 @@ curl -sSL https://raw.githubusercontent.com/ramusaaa/routix/main/install.sh | ba
 **📦 Manual Install**
 ```bash
 # Install the CLI tool
-go install github.com/ramusaaa/routix/cmd/routix@v0.3.8
+go install github.com/ramusaaa/routix/cmd/routix@v0.3.10
 
 # Make sure Go's bin directory is in your PATH
 # Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.)
@@ -114,7 +114,7 @@ func main() {
     r.GET("/", func(c *routix.Context) error {
         return c.JSON(200, map[string]interface{}{
             "message": "Hello from Routix!",
-            "version": "v0.3.8",
+            "version": "v0.3.10",
         })
     })
     

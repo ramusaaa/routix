@@ -4,7 +4,7 @@ import "fmt"
 
 func ShowHelp() {
 	fmt.Println(`
-🚀 Routix CLI v0.3.8 - Go Web Framework
+🚀 Routix CLI v0.3.10 - Go Web Framework
 
 Usage:
   routix <command> [arguments]
@@ -72,6 +72,6 @@ For more information: https://github.com/ramusaaa/routix
 }
 
 func ShowVersion() {
-	fmt.Println("Routix CLI v0.3.8")
+	fmt.Println("Routix CLI v0.3.10")
 	fmt.Println("Go Web Framework")
 }
