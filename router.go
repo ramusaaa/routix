@@ -20,10 +20,6 @@ type Context struct {
 	handlers []Handler
 }
 
-
-
-
-
 func getContextFromPool(req *http.Request, w http.ResponseWriter, params, query map[string]string, body map[string]any) *Context {
 	ctx := getContext()
 	ctx.Request = req
@@ -66,8 +62,6 @@ type node struct {
 }
 
 type Middleware func(Handler) Handler
-
-
 
 func New() *Router {
 	return &Router{
@@ -117,12 +111,12 @@ func (r *Router) Handle(method, path string, handler Handler) {
 	}
 
 	root := r.trees[method]
-	
+
 	if path == "/" {
 		root.handlers["/"] = handler
 		return
 	}
-	
+
 	parts := strings.Split(path, "/")[1:]
 
 	for i, part := range parts {
@@ -232,8 +226,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	method := req.Method
 
 	if r.devMode {
-		fmt.Printf("🔍 Incoming request: %s %s\n", method, path)
-		fmt.Printf("🌳 Available trees: %v\n", getTreeKeys(r.trees))
+		fmt.Printf("Incoming request: %s %s\n", method, path)
+		fmt.Printf("Available trees: %v\n", getTreeKeys(r.trees))
 	}
 
 	if method == http.MethodGet {
@@ -249,7 +243,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	root, ok := r.trees[method]
 	if !ok {
 		if r.devMode {
-			fmt.Printf("❌ No tree found for method: %s\n", method)
+			fmt.Printf("No tree found for method: %s\n", method)
 		}
 		r.notMethod(getContextFromPool(req, w, nil, nil, nil))
 		return
@@ -280,10 +274,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	ctx := getContextFromPool(req, w, params, query, body)
 	defer putContextToPool(ctx)
 
-	handler, found := r.findHandlerOptimized(root, path, method, params)
+	handler, found := r.findHandlerOptimized(root, path, params)
 	if !found {
 		if r.devMode {
-			fmt.Printf("🔍 Route not found: %s %s\n", method, path)
+			fmt.Printf("Route not found: %s %s\n", method, path)
 		}
 		r.notFound(ctx)
 		return
@@ -304,14 +298,14 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (r *Router) findHandlerOptimized(root *node, path, method string, params map[string]string) (Handler, bool) {
+func (r *Router) findHandlerOptimized(root *node, path string, params map[string]string) (Handler, bool) {
 	if path == "/" {
 		if handler, ok := root.handlers["/"]; ok {
 			return handler, true
 		}
 		return nil, false
 	}
-	
+
 	pathLen := len(path)
 	if pathLen == 0 {
 		return nil, false
@@ -319,20 +313,20 @@ func (r *Router) findHandlerOptimized(root *node, path, method string, params ma
 
 	current := root
 	start := 1
-	
+
 	for start < pathLen {
 		end := start
 		for end < pathLen && path[end] != '/' {
 			end++
 		}
-		
+
 		if start == end {
 			start++
 			continue
 		}
-		
+
 		part := path[start:end]
-		
+
 		if child, ok := current.children[part]; ok {
 			current = child
 			start = end + 1
@@ -359,16 +353,11 @@ func (r *Router) findHandlerOptimized(root *node, path, method string, params ma
 		return nil, false
 	}
 
-	// Check if handler exists for this path
 	if handler, ok := current.handlers[path]; ok {
 		return handler, true
 	}
-	
-	return nil, false
-}
 
-func (r *Router) findHandler(root *node, path, method string, params map[string]string) (Handler, bool) {
-	return r.findHandlerOptimized(root, path, method, params)
+	return nil, false
 }
 
 func (r *Router) Group(prefix string) *Group {
@@ -415,8 +404,6 @@ func (c *Context) String(status int, format string, values ...interface{}) error
 	return err
 }
 
-
-
 func (c *Context) HTML(status int, html string) error {
 	c.Response.Header().Set("Content-Type", "text/html")
 	c.Response.WriteHeader(status)
@@ -447,8 +434,24 @@ func (c *Context) SetCookie(cookie *http.Cookie) {
 }
 
 func (r *Router) Start(addr string) error {
-	fmt.Println("Routix Framework")
-	fmt.Printf(" Routix server starting on %s\n", addr)
+	if len(r.trees) == 0 {
+		r.GET("/", WelcomeHandler("Routix"))
+	}
+	fmt.Println()
+	fmt.Println("\033[32m" + `
+  ██████╗  ██████╗ ██╗   ██╗████████╗██╗██╗  ██╗
+  ██╔══██╗██╔═══██╗██║   ██║╚══██╔══╝██║╚██╗██╔╝
+  ██████╔╝██║   ██║██║   ██║   ██║   ██║ ╚███╔╝ 
+  ██╔══██╗██║   ██║██║   ██║   ██║   ██║ ██╔██╗ 
+  ██║  ██║╚██████╔╝╚██████╔╝   ██║   ██║██╔╝ ██╗
+  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚═╝╚═╝  ╚═╝` + "\033[0m")
+	fmt.Println()
+	fmt.Println("  \033[1mRoutix Framework v0.3.8\033[0m")
+	fmt.Println("  \033[90mPowered by Ramusa Software Corporation\033[0m")
+	fmt.Println()
+	fmt.Println("  \033[36m➜\033[0m  \033[1mLocal:\033[0m   \033[36mhttp://localhost" + addr + "/\033[0m")
+	fmt.Println()
+
 	return http.ListenAndServe(addr, r)
 }
 
@@ -475,10 +478,6 @@ func (c *Context) Cache(duration time.Duration) {
 		duration,
 	)
 }
-
-
-
-
 
 func getTreeKeys(trees map[string]*node) []string {
 	keys := make([]string, 0, len(trees))
