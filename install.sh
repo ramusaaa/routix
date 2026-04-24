@@ -1,109 +1,162 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Routix Installation Script
-# This script installs Routix CLI and configures PATH automatically
+# Routix CLI installer for Linux and macOS
+# Usage: curl -fsSL https://raw.githubusercontent.com/ramusaaa/routix/main/install.sh | bash
 
-set -e
+VERSION="v0.4.0"
+MODULE="github.com/ramusaaa/routix/cmd/routix"
+BINARY="routix"
 
-echo "🚀 Installing Routix CLI..."
+# ─── helpers ────────────────────────────────────────────────────────────────
 
-# Get latest version from GitHub API
-echo "🔍 Checking for latest version..."
+print_step() { printf "\033[36m::\033[0m %s\n" "$1"; }
+print_ok()   { printf "\033[32m ok\033[0m %s\n" "$1"; }
+print_warn() { printf "\033[33mwarn\033[0m %s\n" "$1" >&2; }
+print_err()  { printf "\033[31merr\033[0m %s\n" "$1" >&2; }
 
-# Try multiple methods to get latest version
-LATEST_VERSION=""
+die() {
+    print_err "$1"
+    exit 1
+}
 
-# Method 1: GitHub API
-if [ -z "$LATEST_VERSION" ]; then
-    echo "🔍 Trying GitHub API..."
-    API_RESPONSE=$(curl -s --connect-timeout 5 --max-time 10 https://api.github.com/repos/ramusaaa/routix/releases/latest 2>/dev/null)
-    if [ $? -eq 0 ] && [ -n "$API_RESPONSE" ]; then
-        LATEST_VERSION=$(echo "$API_RESPONSE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
-        if [ -n "$LATEST_VERSION" ]; then
-            echo "✅ Found version via API: $LATEST_VERSION"
-        fi
-    else
-        echo "⚠️  GitHub API request failed"
-    fi
-fi
+# ─── os / arch detection ─────────────────────────────────────────────────────
 
-# Method 2: GitHub releases page
-if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "" ]; then
-    echo "🔍 Trying GitHub releases page..."
-    RELEASES_PAGE=$(curl -s --connect-timeout 5 --max-time 10 https://github.com/ramusaaa/routix/releases/latest 2>/dev/null)
-    if [ $? -eq 0 ] && [ -n "$RELEASES_PAGE" ]; then
-        LATEST_VERSION=$(echo "$RELEASES_PAGE" | grep -o 'tag/v[0-9]\+\.[0-9]\+\.[0-9]\+' | head -1 | sed 's/tag\///')
-        if [ -n "$LATEST_VERSION" ]; then
-            echo "✅ Found version via releases page: $LATEST_VERSION"
-        fi
-    else
-        echo "⚠️  GitHub releases page request failed"
-    fi
-fi
+OS="$(uname -s)"
+ARCH="$(uname -m)"
 
-# Fallback to known latest version
-if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "" ]; then
-    echo "⚠️  Could not fetch latest version, using v0.4.0"
-    LATEST_VERSION="v0.4.0"
-else
-    echo "📋 Latest version: $LATEST_VERSION"
-fi
-
-# Install Routix
-echo "📦 Downloading and installing routix..."
-if [ "$LATEST_VERSION" = "v0.4.0" ]; then
-    # If using fallback version, try @latest first
-    echo "🔄 Trying @latest first..."
-    if go install github.com/ramusaaa/routix/cmd/routix@latest 2>/dev/null; then
-        echo "✅ Installed latest version from Go modules"
-    else
-        echo "⚠️  @latest failed, using fallback version"
-        go install github.com/ramusaaa/routix/cmd/routix@$LATEST_VERSION
-    fi
-else
-    go install github.com/ramusaaa/routix/cmd/routix@$LATEST_VERSION
-fi
-
-# Detect shell
-SHELL_NAME=$(basename "$SHELL")
-case $SHELL_NAME in
-    "zsh")
-        SHELL_RC="$HOME/.zshrc"
-        ;;
-    "bash")
-        SHELL_RC="$HOME/.bashrc"
-        ;;
-    *)
-        SHELL_RC="$HOME/.profile"
-        ;;
+case "$OS" in
+    Linux)  OS_NAME="linux" ;;
+    Darwin) OS_NAME="darwin" ;;
+    *)      die "Unsupported operating system: $OS. Use install.ps1 on Windows." ;;
 esac
 
-# Check if Go bin is already in PATH
-if [[ ":$PATH:" != *":$HOME/go/bin:"* ]]; then
-    echo "🔧 Adding Go bin directory to PATH in $SHELL_RC..."
-    echo 'export PATH="$HOME/go/bin:$PATH"' >> "$SHELL_RC"
-    export PATH="$HOME/go/bin:$PATH"
-    echo "✅ PATH updated successfully!"
-else
-    echo "✅ Go bin directory already in PATH"
+case "$ARCH" in
+    x86_64)  ARCH_NAME="amd64" ;;
+    aarch64|arm64) ARCH_NAME="arm64" ;;
+    armv7l)  ARCH_NAME="arm" ;;
+    i386|i686) ARCH_NAME="386" ;;
+    *) die "Unsupported architecture: $ARCH" ;;
+esac
+
+# ─── preflight checks ────────────────────────────────────────────────────────
+
+print_step "Checking prerequisites..."
+
+if ! command -v go &>/dev/null; then
+    die "Go is not installed. Install it from https://go.dev/dl/ and re-run this script."
 fi
 
-# Verify installation
-if command -v routix &> /dev/null; then
-    echo "🎉 Routix installed successfully!"
-    echo "📋 Version: $(routix --version)"
-    echo ""
-    echo "🚀 Quick start:"
-    echo "   routix new my-awesome-api"
-    echo "   cd my-awesome-api"
-    echo "   routix serve"
-    echo ""
-    echo "📚 For more commands, run: routix help"
-else
-    echo "❌ Installation failed. Please restart your terminal and try again."
-    echo "   Or manually add $HOME/go/bin to your PATH"
-    exit 1
+GO_VERSION="$(go version | awk '{print $3}' | sed 's/go//')"
+GO_MAJOR="$(echo "$GO_VERSION" | cut -d. -f1)"
+GO_MINOR="$(echo "$GO_VERSION" | cut -d. -f2)"
+
+if [ "$GO_MAJOR" -lt 1 ] || { [ "$GO_MAJOR" -eq 1 ] && [ "$GO_MINOR" -lt 21 ]; }; then
+    die "Go 1.21 or newer is required (found $GO_VERSION). Update at https://go.dev/dl/"
 fi
 
-echo ""
-echo "🔄 Please restart your terminal or run: source $SHELL_RC"
+print_ok "Go $GO_VERSION ($OS_NAME/$ARCH_NAME)"
+
+# ─── resolve version ─────────────────────────────────────────────────────────
+
+print_step "Resolving latest version..."
+
+INSTALL_VERSION="$VERSION"
+
+if RESOLVED=$(curl -sf --connect-timeout 8 \
+    https://api.github.com/repos/ramusaaa/routix/releases/latest \
+    | grep '"tag_name"' \
+    | sed -E 's/.*"([^"]+)".*/\1/'); then
+    [ -n "$RESOLVED" ] && INSTALL_VERSION="$RESOLVED"
+fi
+
+print_ok "Installing $INSTALL_VERSION"
+
+# ─── install ─────────────────────────────────────────────────────────────────
+
+print_step "Running go install..."
+
+if ! go install "${MODULE}@${INSTALL_VERSION}" 2>&1; then
+    print_warn "Tagged version failed, trying @latest..."
+    go install "${MODULE}@latest" || die "Installation failed. Check your internet connection and try again."
+fi
+
+# ─── path setup ──────────────────────────────────────────────────────────────
+
+GOBIN="$(go env GOPATH)/bin"
+if [ -z "$GOBIN" ] || [ "$GOBIN" = "/bin" ]; then
+    GOBIN="$HOME/go/bin"
+fi
+
+# Detect shell config file
+detect_shell_rc() {
+    local shell_name
+    shell_name="$(basename "${SHELL:-bash}")"
+    case "$shell_name" in
+        zsh)  echo "$HOME/.zshrc" ;;
+        bash)
+            if [ -f "$HOME/.bash_profile" ] && [ "$OS_NAME" = "darwin" ]; then
+                echo "$HOME/.bash_profile"
+            else
+                echo "$HOME/.bashrc"
+            fi
+            ;;
+        fish) echo "$HOME/.config/fish/config.fish" ;;
+        *)    echo "$HOME/.profile" ;;
+    esac
+}
+
+SHELL_RC="$(detect_shell_rc)"
+PATH_LINE="export PATH=\"\$PATH:${GOBIN}\""
+FISH_PATH_LINE="fish_add_path ${GOBIN}"
+
+if [[ ":$PATH:" != *":${GOBIN}:"* ]]; then
+    print_step "Adding ${GOBIN} to PATH in ${SHELL_RC}..."
+
+    if [[ "$(basename "${SHELL:-bash}")" == "fish" ]]; then
+        echo "$FISH_PATH_LINE" >> "$SHELL_RC"
+    else
+        {
+            echo ""
+            echo "# Routix / Go binaries"
+            echo "$PATH_LINE"
+        } >> "$SHELL_RC"
+    fi
+
+    export PATH="$PATH:${GOBIN}"
+    print_ok "PATH updated"
+else
+    print_ok "${GOBIN} already in PATH"
+fi
+
+# ─── verify ──────────────────────────────────────────────────────────────────
+
+print_step "Verifying installation..."
+
+if ! command -v "$BINARY" &>/dev/null; then
+    # Binary may be present but not yet in shell PATH — check directly
+    if [ -x "${GOBIN}/${BINARY}" ]; then
+        print_ok "Installed at ${GOBIN}/${BINARY}"
+        print_warn "Open a new terminal (or run: source ${SHELL_RC}) for 'routix' to be available."
+    else
+        die "Installation failed. Binary not found at ${GOBIN}/${BINARY}"
+    fi
+else
+    INSTALLED_VERSION="$("$BINARY" version 2>/dev/null || echo "unknown")"
+    print_ok "${BINARY} ${INSTALLED_VERSION}"
+fi
+
+# ─── done ────────────────────────────────────────────────────────────────────
+
+printf "\n"
+printf "  \033[1mRoutix is ready.\033[0m\n\n"
+printf "  Get started:\n\n"
+printf "    routix new my-api\n"
+printf "    cd my-api\n"
+printf "    routix serve\n\n"
+printf "  Run \033[1mroutix help\033[0m to see all commands.\n\n"
+
+if [[ ":$PATH:" != *":${GOBIN}:"* ]]; then
+    printf "  \033[33mNote:\033[0m Restart your terminal or run:\n"
+    printf "    source %s\n\n" "$SHELL_RC"
+fi
