@@ -19,35 +19,35 @@ func NewProject(args []string) {
 	}
 
 	projectName := args[0]
-	fmt.Printf("🚀 Creating new Routix project: %s\n\n", projectName)
+	fmt.Printf("Creating new Routix project: %s\n\n", projectName)
 
 	config := generators.ProjectConfig{Name: projectName}
 	askProjectQuestions(&config)
 
 	if err := os.MkdirAll(projectName, 0755); err != nil {
-		fmt.Printf("❌ Error creating directory: %v\n", err)
+		fmt.Printf("error: creating directory: %v\n", err)
 		return
 	}
 
-	fmt.Printf("\n📦 Generating project structure...\n")
+	fmt.Printf("\nGenerating project structure...\n")
 	generateProjectStructure(projectName, config)
 
-	fmt.Printf("\n📥 Installing dependencies...\n")
+	fmt.Printf("\nInstalling dependencies...\n")
 	runGoModTidy(projectName)
 
-	fmt.Printf("\n✅ Project created successfully!\n\n")
+	fmt.Printf("\nProject created successfully!\n\n")
 	printNextSteps(projectName, config)
 }
 
 func askProjectQuestions(config *generators.ProjectConfig) {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("📋 Select a project template:")
+	fmt.Println("Select a project template:")
 	fmt.Println("  1. API Only (RESTful API)")
 	fmt.Println("  2. Full-stack (API + Frontend)")
 	fmt.Println("  3. Microservice (Production-ready)")
 	fmt.Println("  4. Minimal (Basic setup)")
-	
+
 	templateChoice := readChoice(reader, "Choose template (1-4)", []string{"1", "2", "3", "4"}, "1")
 	switch templateChoice {
 	case "2":
@@ -60,7 +60,7 @@ func askProjectQuestions(config *generators.ProjectConfig) {
 		config.Template = "api"
 	}
 
-	fmt.Print("\n🗄️  Add database support? [Y/n]: ")
+	fmt.Print("\nAdd database support? [Y/n]: ")
 	config.UseDatabase = readBoolWithValidation(reader, true)
 
 	if config.UseDatabase {
@@ -68,7 +68,7 @@ func askProjectQuestions(config *generators.ProjectConfig) {
 		fmt.Println("  1. PostgreSQL (recommended)")
 		fmt.Println("  2. MySQL")
 		fmt.Println("  3. SQLite (development)")
-		
+
 		dbChoice := readChoice(reader, "Choose database (1-3)", []string{"1", "2", "3"}, "1")
 		switch dbChoice {
 		case "2":
@@ -80,31 +80,31 @@ func askProjectQuestions(config *generators.ProjectConfig) {
 		}
 	}
 
-	fmt.Print("🔐 Add authentication (JWT + bcrypt)? [Y/n]: ")
+	fmt.Print("Add authentication (JWT + bcrypt)? [Y/n]: ")
 	config.UseAuth = readBoolWithValidation(reader, true)
 
-	fmt.Print("⚡ Add caching (Redis)? [y/N]: ")
+	fmt.Print("Add caching (Redis)? [y/N]: ")
 	config.UseCache = readBoolWithValidation(reader, false)
 
-	fmt.Print("📬 Add job queue system? [y/N]: ")
+	fmt.Print("Add job queue system? [y/N]: ")
 	config.UseQueue = readBoolWithValidation(reader, false)
 
-	fmt.Print("🔌 Add WebSocket support? [y/N]: ")
+	fmt.Print("Add WebSocket support? [y/N]: ")
 	config.UseWebSocket = readBoolWithValidation(reader, false)
 
-	fmt.Print("🐳 Add Docker support? [Y/n]: ")
+	fmt.Print("Add Docker support? [Y/n]: ")
 	config.UseDocker = readBoolWithValidation(reader, true)
 
-	fmt.Print("📚 Add Swagger documentation? [Y/n]: ")
+	fmt.Print("Add Swagger documentation? [Y/n]: ")
 	config.UseSwagger = readBoolWithValidation(reader, true)
 
-	fmt.Print("🧪 Add testing setup? [Y/n]: ")
+	fmt.Print("Add testing setup? [Y/n]: ")
 	config.UseTests = readBoolWithValidation(reader, true)
 
-	fmt.Print("🌐 Add CORS support? [Y/n]: ")
+	fmt.Print("Add CORS support? [Y/n]: ")
 	config.UseCORS = readBoolWithValidation(reader, true)
 
-	fmt.Print("🚦 Add rate limiting? [Y/n]: ")
+	fmt.Print("Add rate limiting? [Y/n]: ")
 	config.UseRateLimit = readBoolWithValidation(reader, true)
 }
 
@@ -129,20 +129,20 @@ func readBoolWithValidation(reader *bufio.Reader, defaultValue bool) bool {
 	for {
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(strings.ToLower(input))
-		
+
 		if input == "" {
 			return defaultValue
 		}
-		
+
 		if input == "y" || input == "yes" {
 			return true
 		}
-		
+
 		if input == "n" || input == "no" {
 			return false
 		}
-		
-		fmt.Print("❌ Please enter 'y' for yes or 'n' for no: ")
+
+		fmt.Print("please enter 'y' or 'n': ")
 	}
 }
 
@@ -151,18 +151,18 @@ func readChoice(reader *bufio.Reader, prompt string, validChoices []string, defa
 		fmt.Printf("%s [%s]: ", prompt, defaultChoice)
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
-		
+
 		if input == "" {
 			return defaultChoice
 		}
-		
+
 		for _, choice := range validChoices {
 			if input == choice {
 				return input
 			}
 		}
-		
-		fmt.Printf("❌ Invalid choice. Please select from: %s\n", strings.Join(validChoices, ", "))
+
+		fmt.Printf("invalid choice, select from: %s\n", strings.Join(validChoices, ", "))
 	}
 }
 
@@ -174,10 +174,8 @@ func generateProjectStructure(projectName string, config generators.ProjectConfi
 	generators.GenerateEnv(projectName, config)
 	generators.GenerateConfig(projectName, config)
 
-
 	generators.GenerateAppStructure(projectName, config)
 
-	
 	if config.UseDatabase {
 		generators.GenerateDatabaseFiles(projectName, config)
 	}
@@ -238,58 +236,55 @@ func createDirectoryStructure(projectName string, config generators.ProjectConfi
 	for _, dir := range dirs {
 		fullPath := fmt.Sprintf("%s/%s", projectName, dir)
 		os.MkdirAll(fullPath, 0755)
-		fmt.Printf("  ✓ Created %s/\n", dir)
+		fmt.Printf("  + %s/\n", dir)
 	}
 }
 
 func runGoModTidy(projectName string) {
-	// Change to project directory and run go mod tidy
 	originalDir, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("  ⚠️  Warning: Could not get current directory: %v\n", err)
+		fmt.Printf("  warning: could not get current directory: %v\n", err)
 		return
 	}
 
 	err = os.Chdir(projectName)
 	if err != nil {
-		fmt.Printf("  ⚠️  Warning: Could not change to project directory: %v\n", err)
+		fmt.Printf("  warning: could not change to project directory: %v\n", err)
 		return
 	}
 	defer os.Chdir(originalDir)
 
-	// Import exec package at the top of the file
 	cmd := exec.Command("go", "mod", "tidy")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("  ⚠️  Warning: go mod tidy failed: %v\n", err)
-		fmt.Printf("  Output: %s\n", string(output))
+		fmt.Printf("  warning: go mod tidy failed: %v\n", err)
+		fmt.Printf("  output: %s\n", string(output))
 		return
 	}
 
-	fmt.Printf("  ✓ Dependencies installed successfully\n")
+	fmt.Printf("  + dependencies installed\n")
 }
 
 func printNextSteps(projectName string, config generators.ProjectConfig) {
-	fmt.Printf("📋 Next steps:\n\n")
-	fmt.Printf("  1. Navigate to your project:\n")
-	fmt.Printf("     cd %s\n\n", projectName)
-	
+	fmt.Printf("Next steps:\n\n")
+	fmt.Printf("  1. cd %s\n\n", projectName)
+
 	if config.UseDatabase {
-		fmt.Printf("  2. Setup database:\n")
+		fmt.Printf("  2. Set up database:\n")
 		fmt.Printf("     - Update .env with your database credentials\n")
 		fmt.Printf("     - Run: routix migrate\n\n")
 	}
-	
+
 	fmt.Printf("  3. Start development server:\n")
 	fmt.Printf("     routix serve\n\n")
-	
-	fmt.Printf("🌐 Your API will be available at: http://localhost:8080\n")
-	
+
+	fmt.Printf("Your API will be available at: http://localhost:8080\n")
+
 	if config.UseSwagger {
-		fmt.Printf("📚 API Documentation: http://localhost:8080/docs\n")
+		fmt.Printf("API docs: http://localhost:8080/docs\n")
 	}
-	
-	fmt.Printf("\n💡 Useful commands:\n")
+
+	fmt.Printf("\nUseful commands:\n")
 	fmt.Printf("  routix make:controller UserController\n")
 	fmt.Printf("  routix make:model User\n")
 	fmt.Printf("  routix make:migration create_users_table\n")

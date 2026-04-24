@@ -62,9 +62,9 @@ Make Commands:
 
 Options:
   --resource                      Create resource controller with CRUD methods
-  --api                          Create API controller
-  --model                        Also create model (for controllers)
-  --migration                    Also create migration (for models)
+  --api                           Create API controller
+  --model                         Also create model (for controllers)
+  --migration                     Also create migration (for models)
 
 Examples:
   routix make:controller UserController
@@ -83,21 +83,21 @@ func makeController(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("🎮 Creating controller: %s\n", name)
+	fmt.Printf("Creating controller: %s\n", name)
 
 	if err := generators.GenerateController(name, options); err != nil {
-		fmt.Printf("❌ Error creating controller: %v\n", err)
+		fmt.Printf("error: creating controller: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Controller created: app/controllers/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: app/controllers/%s.go\n", strings.ToLower(name))
 
 	if options["model"] {
 		modelName := strings.TrimSuffix(name, "Controller")
 		if err := generators.GenerateModel(modelName, options); err != nil {
-			fmt.Printf("⚠️  Warning: Could not create model: %v\n", err)
+			fmt.Printf("warning: could not create model: %v\n", err)
 		} else {
-			fmt.Printf("✅ Model created: app/models/%s.go\n", strings.ToLower(modelName))
+			fmt.Printf("created: app/models/%s.go\n", strings.ToLower(modelName))
 		}
 	}
 }
@@ -111,21 +111,21 @@ func makeModel(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("📊 Creating model: %s\n", name)
+	fmt.Printf("Creating model: %s\n", name)
 
 	if err := generators.GenerateModel(name, options); err != nil {
-		fmt.Printf("❌ Error creating model: %v\n", err)
+		fmt.Printf("error: creating model: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Model created: app/models/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: app/models/%s.go\n", strings.ToLower(name))
 
 	if options["migration"] {
 		migrationName := fmt.Sprintf("create_%s_table", strings.ToLower(name)+"s")
 		if err := generators.GenerateMigration(migrationName, options); err != nil {
-			fmt.Printf("⚠️  Warning: Could not create migration: %v\n", err)
+			fmt.Printf("warning: could not create migration: %v\n", err)
 		} else {
-			fmt.Printf("✅ Migration created: database/migrations/%s.go\n", migrationName)
+			fmt.Printf("created: database/migrations/%s.go\n", migrationName)
 		}
 	}
 }
@@ -139,14 +139,14 @@ func makeMiddleware(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("🛡️  Creating middleware: %s\n", name)
+	fmt.Printf("Creating middleware: %s\n", name)
 
 	if err := generators.GenerateMiddlewareFile(name, options); err != nil {
-		fmt.Printf("❌ Error creating middleware: %v\n", err)
+		fmt.Printf("error: creating middleware: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Middleware created: app/middleware/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: app/middleware/%s.go\n", strings.ToLower(name))
 }
 
 func makeMigration(args []string) {
@@ -158,14 +158,14 @@ func makeMigration(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("🗄️  Creating migration: %s\n", name)
+	fmt.Printf("Creating migration: %s\n", name)
 
 	if err := generators.GenerateMigration(name, options); err != nil {
-		fmt.Printf("❌ Error creating migration: %v\n", err)
+		fmt.Printf("error: creating migration: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Migration created: database/migrations/%s.go\n", name)
+	fmt.Printf("created: database/migrations/%s.go\n", name)
 }
 
 func makeSeeder(args []string) {
@@ -177,14 +177,14 @@ func makeSeeder(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("🌱 Creating seeder: %s\n", name)
+	fmt.Printf("Creating seeder: %s\n", name)
 
 	if err := generators.GenerateSeeder(name, options); err != nil {
-		fmt.Printf("❌ Error creating seeder: %v\n", err)
+		fmt.Printf("error: creating seeder: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Seeder created: database/seeders/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: database/seeders/%s.go\n", strings.ToLower(name))
 }
 
 func makeService(args []string) {
@@ -196,14 +196,14 @@ func makeService(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("⚙️  Creating service: %s\n", name)
+	fmt.Printf("Creating service: %s\n", name)
 
 	if err := generators.GenerateService(name, options); err != nil {
-		fmt.Printf("❌ Error creating service: %v\n", err)
+		fmt.Printf("error: creating service: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Service created: app/services/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: app/services/%s.go\n", strings.ToLower(name))
 }
 
 func makeRequest(args []string) {
@@ -215,14 +215,14 @@ func makeRequest(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("📝 Creating request validator: %s\n", name)
+	fmt.Printf("Creating request validator: %s\n", name)
 
 	if err := generators.GenerateRequest(name, options); err != nil {
-		fmt.Printf("❌ Error creating request: %v\n", err)
+		fmt.Printf("error: creating request: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Request created: app/requests/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: app/requests/%s.go\n", strings.ToLower(name))
 }
 
 func makeResource(args []string) {
@@ -234,14 +234,14 @@ func makeResource(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("📦 Creating API resource: %s\n", name)
+	fmt.Printf("Creating API resource: %s\n", name)
 
 	if err := generators.GenerateResource(name, options); err != nil {
-		fmt.Printf("❌ Error creating resource: %v\n", err)
+		fmt.Printf("error: creating resource: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Resource created: app/resources/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: app/resources/%s.go\n", strings.ToLower(name))
 }
 
 func makeTest(args []string) {
@@ -253,14 +253,14 @@ func makeTest(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("🧪 Creating test: %s\n", name)
+	fmt.Printf("Creating test: %s\n", name)
 
 	if err := generators.GenerateTest(name, options); err != nil {
-		fmt.Printf("❌ Error creating test: %v\n", err)
+		fmt.Printf("error: creating test: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Test created: tests/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: tests/%s.go\n", strings.ToLower(name))
 }
 
 func makeModule(args []string) {
@@ -272,14 +272,14 @@ func makeModule(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("📦 Creating module: %s\n", name)
+	fmt.Printf("Creating module: %s\n", name)
 
 	if err := generators.GenerateModule(name, options); err != nil {
-		fmt.Printf("❌ Error creating module: %v\n", err)
+		fmt.Printf("error: creating module: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Module created: app/modules/%s/\n", strings.ToLower(name))
+	fmt.Printf("created: app/modules/%s/\n", strings.ToLower(name))
 }
 
 func makeJob(args []string) {
@@ -291,25 +291,25 @@ func makeJob(args []string) {
 	name := args[0]
 	options := parseOptions(args[1:])
 
-	fmt.Printf("💼 Creating job: %s\n", name)
+	fmt.Printf("Creating job: %s\n", name)
 
 	if err := generators.GenerateJob(name, options); err != nil {
-		fmt.Printf("❌ Error creating job: %v\n", err)
+		fmt.Printf("error: creating job: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Job created: app/jobs/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: app/jobs/%s.go\n", strings.ToLower(name))
 }
 
 func parseOptions(args []string) map[string]bool {
 	options := make(map[string]bool)
-	
+
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--") {
 			option := strings.TrimPrefix(arg, "--")
 			options[option] = true
 		}
 	}
-	
+
 	return options
 }

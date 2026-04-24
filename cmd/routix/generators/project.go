@@ -225,10 +225,10 @@ func writeFile(path, content string) {
 	os.MkdirAll(filepath.Dir(path), 0755)
 	file, err := os.Create(path)
 	if err != nil {
-		fmt.Printf("❌ Error creating file %s: %v\n", path, err)
+		fmt.Printf("  error: creating file %s: %v\n", path, err)
 		return
 	}
 	defer file.Close()
 	file.WriteString(content)
-	fmt.Printf("  ✓ Created %s\n", path)
+	fmt.Printf("  + %s\n", path)
 }

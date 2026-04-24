@@ -44,8 +44,7 @@ import (
 	"time"
 )
 
-// Logger returns a middleware that logs request information.
-// It logs the method, path, status code, and processing time for each request.
+// Logger returns a middleware that logs request method, path, status code, and latency.
 func Logger() Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) error {
@@ -53,14 +52,18 @@ func Logger() Middleware {
 			path := c.Request.URL.Path
 			method := c.Request.Method
 
-			// Process request
 			err := next(c)
 
-			// Calculate duration
+			status := c.Status()
 			duration := time.Since(start)
 
-			// Log request details
-			fmt.Printf("[%s] %s %s - %v\n", method, path, duration, err)
+			color := "\033[32m" // green
+			if status >= 500 {
+				color = "\033[31m" // red
+			} else if status >= 400 {
+				color = "\033[33m" // yellow
+			}
+			fmt.Printf("%s%d\033[0m  %-7s %s  %v\n", color, status, method, path, duration)
 
 			return err
 		}
@@ -296,24 +299,22 @@ func Cache(duration time.Duration) Middleware {
 			}
 			mu.RUnlock()
 
-			// Create a response recorder
+			// Capture response so we can store it in cache.
 			recorder := httptest.NewRecorder()
-
-			// Create a new context with the recorder
+			rw := &responseWriter{ResponseWriter: recorder}
 			newCtx := &Context{
 				Request:  c.Request,
-				Response: recorder,
+				Writer:   rw,
+				Response: rw,
 				Params:   c.Params,
 				Query:    c.Query,
 				Body:     c.Body,
 			}
 
-			// Call the next handler
 			if err := next(newCtx); err != nil {
 				return err
 			}
 
-			// Cache the response
 			mu.Lock()
 			cache[key] = struct {
 				response []byte
@@ -328,7 +329,6 @@ func Cache(duration time.Duration) Middleware {
 			}
 			mu.Unlock()
 
-			// Copy the response to the original response writer
 			for k, v := range recorder.Header() {
 				c.Response.Header()[k] = v
 			}
@@ -349,24 +349,22 @@ func Compress() Middleware {
 				return next(c)
 			}
 
-			// Create a response recorder
 			recorder := httptest.NewRecorder()
-
-			// Create a new context with the recorder
+			rw := &responseWriter{ResponseWriter: recorder}
 			newCtx := &Context{
 				Request:  c.Request,
-				Response: recorder,
+				Writer:   rw,
+				Response: rw,
 				Params:   c.Params,
 				Query:    c.Query,
 				Body:     c.Body,
 			}
 
-			// Call the next handler
 			if err := next(newCtx); err != nil {
 				return err
 			}
 
-			// Copy headers (except Content-Length as it will change after compression)
+			// Copy headers, excluding Content-Length since it changes after compression.
 			for k, v := range recorder.Header() {
 				if k != "Content-Length" {
 					c.Response.Header()[k] = v

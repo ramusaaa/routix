@@ -60,7 +60,7 @@ func Connect(cfg *config.Config) *gorm.DB {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	log.Println("✅ Database connected successfully")
+	log.Println("database connected")
 	return DB
 }
 
@@ -110,7 +110,7 @@ func Connect(cfg *config.Config) *gorm.DB {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	log.Println("✅ Database connected successfully")
+	log.Println("database connected")
 	return DB
 }
 
@@ -151,7 +151,7 @@ func Connect(cfg *config.Config) *gorm.DB {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	log.Println("✅ Database connected successfully")
+	log.Println("database connected")
 	return DB
 }
 

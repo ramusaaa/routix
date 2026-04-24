@@ -16,7 +16,7 @@ import (
 func ServeCommand(args []string) {
 	port := "8080"
 	host := "localhost"
-	
+
 	for i, arg := range args {
 		if strings.HasPrefix(arg, "--port=") {
 			port = strings.TrimPrefix(arg, "--port=")
@@ -29,9 +29,9 @@ func ServeCommand(args []string) {
 		}
 	}
 
-	fmt.Printf("🔥 Starting Routix development server...\n")
-	fmt.Printf("🌐 Server will be available at: http://%s:%s\n", host, port)
-	fmt.Printf("👀 Watching for file changes...\n\n")
+	fmt.Printf("Starting Routix development server...\n")
+	fmt.Printf("http://%s:%s\n", host, port)
+	fmt.Printf("Watching for file changes...\n\n")
 
 	os.Setenv("APP_ENV", "development")
 	os.Setenv("APP_PORT", port)
@@ -43,7 +43,7 @@ func ServeCommand(args []string) {
 func startFileWatcher() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		fmt.Printf("❌ Error creating file watcher: %v\n", err)
+		fmt.Printf("error: creating file watcher: %v\n", err)
 		return
 	}
 	defer watcher.Close()
@@ -64,12 +64,12 @@ func startFileWatcher() {
 	var cmd *exec.Cmd
 	restartServer := func() {
 		if cmd != nil && cmd.Process != nil {
-			fmt.Printf("🔄 Restarting server...\n")
+			fmt.Printf("Restarting server...\n")
 			cmd.Process.Kill()
 			cmd.Wait()
 		}
 
-		fmt.Printf("🚀 Starting server...\n")
+		fmt.Printf("Starting server...\n")
 		cmd = exec.Command("go", "run", "main.go")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -83,7 +83,7 @@ func startFileWatcher() {
 
 	go func() {
 		<-c
-		fmt.Printf("\n🛑 Shutting down server...\n")
+		fmt.Printf("\nShutting down...\n")
 		if cmd != nil && cmd.Process != nil {
 			cmd.Process.Kill()
 		}
@@ -111,7 +111,7 @@ func startFileWatcher() {
 			if !ok {
 				return
 			}
-			fmt.Printf("⚠️  File watcher error: %v\n", err)
+			fmt.Printf("warning: file watcher: %v\n", err)
 		}
 	}
 }
@@ -160,7 +160,7 @@ func shouldRestart(event fsnotify.Event) bool {
 
 	for _, restartExt := range restartExts {
 		if ext == restartExt {
-			fmt.Printf("📝 File changed: %s\n", event.Name)
+			fmt.Printf("changed: %s\n", event.Name)
 			return true
 		}
 	}

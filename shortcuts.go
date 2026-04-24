@@ -136,15 +136,9 @@ func (r *Router) WithTimeout(duration string) *Router {
 }
 
 func parseDuration(duration string) time.Duration {
-	// Simple implementation - in real use, use time.ParseDuration
-	switch duration {
-	case "1m":
-		return time.Minute
-	case "5m":
-		return 5 * time.Minute
-	case "1h":
-		return time.Hour
-	default:
+	d, err := time.ParseDuration(duration)
+	if err != nil {
 		return time.Minute
 	}
+	return d
 }

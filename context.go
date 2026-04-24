@@ -4,13 +4,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 )
 
 func (c *Context) ParseJSON(v interface{}) error {
-	if c.Request.Header.Get("Content-Type") != "application/json" {
+	ct := c.Request.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
 		return fmt.Errorf("content-type must be application/json")
 	}
 	return json.NewDecoder(c.Request.Body).Decode(v)
+}
+
+// Cache sets the Cache-Control header so browsers and proxies cache this response.
+func (c *Context) Cache(duration time.Duration) {
+	c.Response.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", int(duration.Seconds())))
 }
 
 func (c *Context) Param(name string) string {

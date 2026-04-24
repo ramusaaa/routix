@@ -1,7 +1,6 @@
 package routix
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 )
@@ -165,39 +164,36 @@ func (api *APIBuilder) Start(addr string) error {
 		api.router.GET("/", WelcomeHandler("Routix"))
 	}
 
-	fmt.Println()
-	fmt.Println("\033[32m" + `
-  ██████╗  ██████╗ ██╗   ██╗████████╗██╗██╗  ██╗
-  ██╔══██╗██╔═══██╗██║   ██║╚══██╔══╝██║╚██╗██╔╝
-  ██████╔╝██║   ██║██║   ██║   ██║   ██║ ╚███╔╝ 
-  ██╔══██╗██║   ██║██║   ██║   ██║   ██║ ██╔██╗ 
-  ██║  ██║╚██████╔╝╚██████╔╝   ██║   ██║██╔╝ ██╗
-  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚═╝╚═╝  ╚═╝` + "\033[0m")
-	fmt.Println()
-	fmt.Println("  \033[1mRoutix Framework v0.3.10\033[0m")
-	fmt.Println("  \033[90mPowered by Ramusa Software Corporation\033[0m")
-	fmt.Println()
-	fmt.Println("  \033[36m➜\033[0m  \033[1mLocal:\033[0m   \033[36mhttp://localhost" + addr + "/\033[0m")
+	printBanner(addr, DevMode)
 
-	if DevMode {
-		fmt.Println()
-		fmt.Println("  \033[33m⚡ Development Mode\033[0m")
-		fmt.Printf("     Metrics: http://localhost%s/_dev/metrics\n", addr)
-		fmt.Printf("     Routes:  http://localhost%s/_dev/routes\n", addr)
-		fmt.Printf("     Health:  http://localhost%s/_dev/health\n", addr)
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      api.router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	fmt.Println()
-	fmt.Println("  \033[90mpress \033[1mh\033[0m\033[90m to show help\033[0m")
-	fmt.Println()
-
-	return http.ListenAndServe(addr, api.router)
+	return listenAndServe(srv)
 }
 
-// StartTLS starts the server with TLS
+// StartTLS starts the server with TLS support.
 func (api *APIBuilder) StartTLS(addr, certFile, keyFile string) error {
-	fmt.Printf("🔒 Routix API server starting with TLS on %s\n", addr)
-	return http.ListenAndServeTLS(addr, certFile, keyFile, api.router)
+	if len(api.router.trees) == 0 {
+		api.router.GET("/", WelcomeHandler("Routix"))
+	}
+
+	printBanner(addr, DevMode)
+
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      api.router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	return srv.ListenAndServeTLS(certFile, keyFile)
 }
 
 // Shortcut functions for common patterns

@@ -23,7 +23,7 @@ func RouteCommand(args []string) {
 }
 
 func listRoutes() {
-	fmt.Printf("🛣️  Registered Routes:\n\n")
+	fmt.Printf("Registered Routes:\n\n")
 	
 	routes := []Route{
 		{Method: "GET", URI: "/", Name: "welcome", Action: "WelcomeController@index", Middleware: []string{}},
@@ -49,18 +49,17 @@ func listRoutes() {
 			route.Method, route.URI, route.Name, route.Action, middlewareStr)
 	}
 
-	fmt.Printf("\n📊 Total routes: %d\n", len(routes))
+	fmt.Printf("\nTotal routes: %d\n", len(routes))
 }
 
 func cacheRoutes() {
-	fmt.Printf("⚡ Caching routes for better performance...\n")
-	fmt.Printf("✅ Routes cached successfully\n")
-	fmt.Printf("💡 Route cache will improve application startup time\n")
+	fmt.Printf("Caching routes...\n")
+	fmt.Printf("Routes cached\n")
 }
 
 func clearRouteCache() {
-	fmt.Printf("🗑️  Clearing route cache...\n")
-	fmt.Printf("✅ Route cache cleared successfully\n")
+	fmt.Printf("Clearing route cache...\n")
+	fmt.Printf("Route cache cleared\n")
 }
 
 type Route struct {

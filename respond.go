@@ -3,6 +3,7 @@ package routix
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 )
 
@@ -163,4 +164,42 @@ func (c *Context) Error(err error, fallbackMessage string) error {
 func (c *Context) Paginated(data interface{}, pageNumber, totalPages int) error {
 	response := RespondPaginated(data, pageNumber, totalPages)
 	return c.JSON(200, response)
+}
+
+func (c *Context) Created(data interface{}) error {
+	return c.JSON(http.StatusCreated, map[string]any{"status": "success", "data": data})
+}
+
+func (c *Context) Accepted(data interface{}) error {
+	return c.JSON(http.StatusAccepted, map[string]any{"status": "success", "data": data})
+}
+
+func (c *Context) NoContent() error {
+	c.Response.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (c *Context) BadRequest(message string) error {
+	return c.JSON(http.StatusBadRequest, map[string]any{"status": "error", "message": message})
+}
+
+func (c *Context) Unauthorized(message string) error {
+	if message == "" {
+		message = "unauthorized"
+	}
+	return c.JSON(http.StatusUnauthorized, map[string]any{"status": "error", "message": message})
+}
+
+func (c *Context) Forbidden(message string) error {
+	if message == "" {
+		message = "forbidden"
+	}
+	return c.JSON(http.StatusForbidden, map[string]any{"status": "error", "message": message})
+}
+
+func (c *Context) NotFound(message string) error {
+	if message == "" {
+		message = "not found"
+	}
+	return c.JSON(http.StatusNotFound, map[string]any{"status": "error", "message": message})
 }

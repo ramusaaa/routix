@@ -4,7 +4,7 @@ import "fmt"
 
 func ShowHelp() {
 	fmt.Print(`
-🚀 Routix CLI v0.3.10 - Go Web Framework
+Routix CLI v0.3.10 - Go Web Framework
 
 Usage:
   routix <command> [arguments]

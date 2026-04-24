@@ -205,11 +205,14 @@ func LoadTest(router *Router, method, path string, concurrent int, duration time
 	
 	totalTime := time.Since(start)
 	
-	return &BenchmarkResult{
-		RequestsPerSecond: float64(totalRequests) / totalTime.Seconds(),
-		AverageLatency:    totalLatency / time.Duration(totalRequests),
-		TotalRequests:     int(totalRequests),
-		TotalTime:         totalTime,
-		ErrorRate:         float64(errors) / float64(totalRequests) * 100,
+	result := &BenchmarkResult{
+		TotalRequests: int(totalRequests),
+		TotalTime:     totalTime,
 	}
+	if totalRequests > 0 && totalTime.Seconds() > 0 {
+		result.RequestsPerSecond = float64(totalRequests) / totalTime.Seconds()
+		result.AverageLatency = totalLatency / time.Duration(totalRequests)
+		result.ErrorRate = float64(errors) / float64(totalRequests) * 100
+	}
+	return result
 }

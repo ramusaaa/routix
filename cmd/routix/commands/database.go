@@ -40,51 +40,50 @@ func SeedCommand(args []string) {
 }
 
 func runMigrations() {
-	fmt.Printf("🗄️  Running database migrations...\n")
+	fmt.Println("Running database migrations...")
 
 	migrationsDir := "database/migrations"
 	if _, err := os.Stat(migrationsDir); os.IsNotExist(err) {
-		fmt.Printf("❌ Migrations directory not found: %s\n", migrationsDir)
+		fmt.Printf("error: migrations directory not found: %s\n", migrationsDir)
 		return
 	}
 
 	files, err := filepath.Glob(filepath.Join(migrationsDir, "*.go"))
 	if err != nil {
-		fmt.Printf("❌ Error reading migrations: %v\n", err)
+		fmt.Printf("error: reading migrations: %v\n", err)
 		return
 	}
 
 	if len(files) == 0 {
-		fmt.Printf("ℹ️  No migrations found\n")
+		fmt.Println("No migrations found")
 		return
 	}
 
-	fmt.Printf("📋 Found %d migration(s)\n", len(files))
+	fmt.Printf("Found %d migration(s)\n", len(files))
 	for _, file := range files {
-		filename := filepath.Base(file)
-		fmt.Printf("  ✓ %s\n", filename)
+		fmt.Printf("  + %s\n", filepath.Base(file))
 	}
 
-	fmt.Printf("✅ Migrations completed successfully\n")
+	fmt.Println("Migrations completed")
 }
 
 func rollbackMigration() {
-	fmt.Printf("⏪ Rolling back last migration...\n")
-	fmt.Printf("✅ Migration rolled back successfully\n")
+	fmt.Println("Rolling back last migration...")
+	fmt.Println("Migration rolled back")
 }
 
 func resetMigrations() {
-	fmt.Printf("🔄 Resetting all migrations...\n")
-	fmt.Printf("✅ All migrations reset successfully\n")
+	fmt.Println("Resetting all migrations...")
+	fmt.Println("All migrations reset")
 }
 
 func freshMigrations() {
-	fmt.Printf("🆕 Running fresh migrations...\n")
-	fmt.Printf("✅ Fresh migrations completed successfully\n")
+	fmt.Println("Running fresh migrations...")
+	fmt.Println("Fresh migrations completed")
 }
 
 func migrationStatus() {
-	fmt.Printf("📊 Migration Status:\n\n")
+	fmt.Printf("Migration status:\n\n")
 	fmt.Printf("| Migration                    | Status  | Batch |\n")
 	fmt.Printf("|------------------------------|---------|-------|\n")
 	fmt.Printf("| create_users_table           | Ran     | 1     |\n")
@@ -93,32 +92,31 @@ func migrationStatus() {
 }
 
 func runSeeders() {
-	fmt.Printf("🌱 Running database seeders...\n")
+	fmt.Println("Running database seeders...")
 
 	seedersDir := "database/seeders"
 	if _, err := os.Stat(seedersDir); os.IsNotExist(err) {
-		fmt.Printf("❌ Seeders directory not found: %s\n", seedersDir)
+		fmt.Printf("error: seeders directory not found: %s\n", seedersDir)
 		return
 	}
 
 	files, err := filepath.Glob(filepath.Join(seedersDir, "*.go"))
 	if err != nil {
-		fmt.Printf("❌ Error reading seeders: %v\n", err)
+		fmt.Printf("error: reading seeders: %v\n", err)
 		return
 	}
 
 	if len(files) == 0 {
-		fmt.Printf("ℹ️  No seeders found\n")
+		fmt.Println("No seeders found")
 		return
 	}
 
-	fmt.Printf("📋 Found %d seeder(s)\n", len(files))
+	fmt.Printf("Found %d seeder(s)\n", len(files))
 	for _, file := range files {
-		filename := filepath.Base(file)
-		fmt.Printf("  ✓ %s\n", filename)
+		fmt.Printf("  + %s\n", filepath.Base(file))
 	}
 
-	fmt.Printf("✅ Seeders completed successfully\n")
+	fmt.Println("Seeders completed")
 }
 
 func generateMigrationName(name string) string {
