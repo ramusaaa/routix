@@ -10,16 +10,6 @@ func GenerateCommonFiles(projectName string, config ProjectConfig) {
 	generateReadme(projectName, config)
 	generateMakefile(projectName, config)
 	generateStorageKeepFiles(projectName)
-	
-	if config.UseSwagger {
-		GenerateSwaggerFiles(projectName, config)
-	}
-	
-	if config.UseTests {
-		GenerateTestFiles(projectName, config)
-	}
-	
-	// Generate routes
 	GenerateRoutes(projectName, config)
 }
 

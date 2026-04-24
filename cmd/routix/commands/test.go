@@ -76,7 +76,7 @@ func runTests(testType string, verbose, coverage bool) {
 }
 
 func showTestHelp() {
-	fmt.Println(`
+	fmt.Print(`
 Test Commands:
   routix test              Run all tests
   routix test unit         Run unit tests only
@@ -90,5 +90,5 @@ Examples:
   routix test --verbose
   routix test unit --coverage
   routix test integration
-`)
+` + "\n")
 }

@@ -3,7 +3,7 @@ package commands
 import "fmt"
 
 func ShowHelp() {
-	fmt.Println(`
+	fmt.Print(`
 🚀 Routix CLI v0.3.10 - Go Web Framework
 
 Usage:
@@ -68,7 +68,7 @@ Options:
   --coverage             Generate coverage report for tests
 
 For more information: https://github.com/ramusaaa/routix
-`)
+` + "\n")
 }
 
 func ShowVersion() {

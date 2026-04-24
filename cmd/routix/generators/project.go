@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 type ProjectConfig struct {
@@ -505,6 +504,8 @@ func generateWelcomeController(projectName string) {
 	content := `package controllers
 
 import (
+	"time"
+
 	"github.com/ramusaaa/routix"
 )
 
@@ -514,16 +515,16 @@ type WelcomeController struct {
 
 func (wc *WelcomeController) Index(c *routix.Context) error {
 	return wc.Success(c, map[string]any{
-		"message": "Welcome to ` + projectName + `!",
-		"version": "1.0.0",
+		"message":   "Welcome to ` + projectName + `!",
+		"version":   "1.0.0",
 		"framework": "Routix v0.3.10",
 	})
 }
 
 func (wc *WelcomeController) Health(c *routix.Context) error {
 	return wc.Success(c, map[string]any{
-		"status": "healthy",
-		"timestamp": "` + time.Now().Format(time.RFC3339) + `",
+		"status":    "healthy",
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})
 }`
 

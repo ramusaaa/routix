@@ -101,20 +101,24 @@ func (m *Metrics) UpdateMetrics(latency time.Duration, isError bool) {
 func (m *Metrics) GetMetrics() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	avgLatency := time.Duration(0)
+	minLatency := time.Duration(0)
+	errorRate := float64(0)
 	if m.RequestCount > 0 {
 		avgLatency = m.TotalLatency / time.Duration(m.RequestCount)
+		minLatency = m.MinLatency
+		errorRate = float64(m.ErrorCount) / float64(m.RequestCount) * 100
 	}
-	
+
 	return map[string]interface{}{
 		"total_requests":     m.RequestCount,
 		"error_count":        m.ErrorCount,
 		"active_requests":    m.ActiveRequests,
 		"average_latency_ms": avgLatency.Milliseconds(),
-		"min_latency_ms":     m.MinLatency.Milliseconds(),
+		"min_latency_ms":     minLatency.Milliseconds(),
 		"max_latency_ms":     m.MaxLatency.Milliseconds(),
-		"error_rate":         float64(m.ErrorCount) / float64(m.RequestCount) * 100,
+		"error_rate":         errorRate,
 	}
 }
 

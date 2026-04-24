@@ -46,7 +46,7 @@ func MakeCommand(args []string) {
 }
 
 func showMakeHelp() {
-	fmt.Println(`
+	fmt.Print(`
 Make Commands:
   routix make:controller <name>   Create a new controller
   routix make:model <name>        Create a new model
@@ -71,7 +71,7 @@ Examples:
   routix make:controller UserController --resource --model
   routix make:model User --migration
   routix make:middleware Auth
-`)
+` + "\n")
 }
 
 func makeController(args []string) {

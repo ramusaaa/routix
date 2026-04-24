@@ -55,7 +55,7 @@ type Router struct {
 
 type node struct {
 	path     string
-	handlers map[string]Handler
+	handler  Handler
 	children map[string]*node
 	params   []string
 	wildcard bool
@@ -79,7 +79,7 @@ func New() *Router {
 			http.Error(c.Response, "405 Method Not Allowed", http.StatusMethodNotAllowed)
 			return nil
 		},
-		devMode: true,
+		devMode: false,
 	}
 }
 
@@ -105,7 +105,6 @@ func (r *Router) Handle(method, path string, handler Handler) {
 
 	if _, ok := r.trees[method]; !ok {
 		r.trees[method] = &node{
-			handlers: make(map[string]Handler),
 			children: make(map[string]*node),
 		}
 	}
@@ -113,7 +112,7 @@ func (r *Router) Handle(method, path string, handler Handler) {
 	root := r.trees[method]
 
 	if path == "/" {
-		root.handlers["/"] = handler
+		root.handler = handler
 		return
 	}
 
@@ -129,7 +128,6 @@ func (r *Router) Handle(method, path string, handler Handler) {
 			if root.children[":"] == nil {
 				root.children[":"] = &node{
 					path:     part,
-					handlers: make(map[string]Handler),
 					children: make(map[string]*node),
 					params:   []string{paramName},
 					wildcard: true,
@@ -140,7 +138,6 @@ func (r *Router) Handle(method, path string, handler Handler) {
 			if root.children["*"] == nil {
 				root.children["*"] = &node{
 					path:     part,
-					handlers: make(map[string]Handler),
 					children: make(map[string]*node),
 					wildcard: true,
 				}
@@ -150,7 +147,6 @@ func (r *Router) Handle(method, path string, handler Handler) {
 			if root.children[part] == nil {
 				root.children[part] = &node{
 					path:     part,
-					handlers: make(map[string]Handler),
 					children: make(map[string]*node),
 				}
 			}
@@ -158,7 +154,7 @@ func (r *Router) Handle(method, path string, handler Handler) {
 		}
 
 		if i == len(parts)-1 {
-			root.handlers[path] = handler
+			root.handler = handler
 		}
 	}
 }
@@ -300,8 +296,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) findHandlerOptimized(root *node, path string, params map[string]string) (Handler, bool) {
 	if path == "/" {
-		if handler, ok := root.handlers["/"]; ok {
-			return handler, true
+		if root.handler != nil {
+			return root.handler, true
 		}
 		return nil, false
 	}
@@ -353,8 +349,8 @@ func (r *Router) findHandlerOptimized(root *node, path string, params map[string
 		return nil, false
 	}
 
-	if handler, ok := current.handlers[path]; ok {
-		return handler, true
+	if current.handler != nil {
+		return current.handler, true
 	}
 
 	return nil, false
@@ -377,24 +373,31 @@ func (g *Group) Use(middleware ...Middleware) {
 	g.middleware = append(g.middleware, middleware...)
 }
 
+func (g *Group) applyMiddleware(handler Handler) Handler {
+	for i := len(g.middleware) - 1; i >= 0; i-- {
+		handler = g.middleware[i](handler)
+	}
+	return handler
+}
+
 func (g *Group) GET(path string, handler Handler) {
-	g.router.GET(g.prefix+path, handler)
+	g.router.GET(g.prefix+path, g.applyMiddleware(handler))
 }
 
 func (g *Group) POST(path string, handler Handler) {
-	g.router.POST(g.prefix+path, handler)
+	g.router.POST(g.prefix+path, g.applyMiddleware(handler))
 }
 
 func (g *Group) PUT(path string, handler Handler) {
-	g.router.PUT(g.prefix+path, handler)
+	g.router.PUT(g.prefix+path, g.applyMiddleware(handler))
 }
 
 func (g *Group) DELETE(path string, handler Handler) {
-	g.router.DELETE(g.prefix+path, handler)
+	g.router.DELETE(g.prefix+path, g.applyMiddleware(handler))
 }
 
 func (g *Group) PATCH(path string, handler Handler) {
-	g.router.PATCH(g.prefix+path, handler)
+	g.router.PATCH(g.prefix+path, g.applyMiddleware(handler))
 }
 
 func (c *Context) String(status int, format string, values ...interface{}) error {
