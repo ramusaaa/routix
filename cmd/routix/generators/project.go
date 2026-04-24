@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type ProjectConfig struct {
@@ -24,15 +23,12 @@ type ProjectConfig struct {
 }
 
 func GenerateGoMod(projectName string, config ProjectConfig) {
-	// Start with basic requirements
 	requirements := []string{
 		"github.com/ramusaaa/routix v0.3.10",
 	}
 
-	// Add database dependencies
 	if config.UseDatabase {
 		requirements = append(requirements, "gorm.io/gorm v1.25.5")
-
 		switch config.DatabaseType {
 		case "postgres":
 			requirements = append(requirements, "gorm.io/driver/postgres v1.5.4")
@@ -43,7 +39,6 @@ func GenerateGoMod(projectName string, config ProjectConfig) {
 		}
 	}
 
-	// Add auth dependencies
 	if config.UseAuth {
 		requirements = append(requirements,
 			"github.com/golang-jwt/jwt/v5 v5.2.0",
@@ -51,248 +46,21 @@ func GenerateGoMod(projectName string, config ProjectConfig) {
 		)
 	}
 
-	// Add cache dependencies
 	if config.UseCache {
 		requirements = append(requirements, "github.com/redis/go-redis/v9 v9.3.0")
 	}
 
-	// Add WebSocket dependencies
 	if config.UseWebSocket {
 		requirements = append(requirements, "github.com/gorilla/websocket v1.5.1")
 	}
 
-	// Build the go.mod content
-	content := fmt.Sprintf(`module %s
-
-go 1.21
-
-require (`, projectName)
-
-	for i, req := range requirements {
-		if i == 0 {
-			content += fmt.Sprintf("\n\t%s", req)
-		} else {
-			content += fmt.Sprintf("\n\t%s", req)
-		}
+	content := fmt.Sprintf("module %s\n\ngo 1.21\n\nrequire (", projectName)
+	for _, req := range requirements {
+		content += fmt.Sprintf("\n\t%s", req)
 	}
-
 	content += "\n)"
 
 	writeFile(filepath.Join(projectName, "go.mod"), content)
-}
-
-func GenerateMain(projectName string, config ProjectConfig) {
-	var content string
-
-	switch config.Template {
-	case "minimal":
-		content = generateMinimalMain(config)
-	case "fullstack":
-		content = generateFullstackMain(config)
-	case "microservice":
-		content = generateMicroserviceMain(config)
-	default:
-		content = generateAPIMain(config)
-	}
-
-	writeFile(filepath.Join(projectName, "main.go"), content)
-}
-
-func generateAPIMain(config ProjectConfig) string {
-	imports := []string{
-		`"github.com/ramusaaa/routix"`,
-		`"` + config.Name + `/config"`,
-		`"` + config.Name + `/routes"`,
-	}
-
-	if config.UseDatabase {
-		imports = append(imports, `"`+config.Name+`/database"`)
-	}
-
-	content := `package main
-
-import (
-	` + strings.Join(imports, "\n\t") + `
-)
-
-func main() {
-	// Load configuration
-	cfg := config.Load()
-
-	// Initialize database
-`
-
-	if config.UseDatabase {
-		content += `	db := database.Connect(cfg)
-	defer database.Close(db)
-
-`
-	}
-
-	content += `	// Create Routix application
-	app := routix.NewAPI().
-		Prod().
-		JSON()`
-
-	if config.UseCORS {
-		content += `.
-		CORS()`
-	}
-
-	if config.UseRateLimit {
-		content += `.
-		RateLimit(1000, "1m")`
-	}
-
-	content += `
-
-	// Register routes
-	routes.RegisterAPI(app`
-
-	if config.UseDatabase {
-		content += `, db`
-	}
-
-	content += `)
-
-	// Start server
-	app.Start(":" + cfg.Port)
-}`
-
-	return content
-}
-
-func generateMinimalMain(config ProjectConfig) string {
-	return `package main
-
-import (
-	"github.com/ramusaaa/routix"
-)
-
-func main() {
-	r := routix.New()
-
-	r.GET("/", func(c *routix.Context) error {
-		return c.JSON(200, map[string]any{
-			"message": "Hello from Routix!",
-		})
-	})
-
-	r.Start(":8080")
-}`
-}
-
-func generateFullstackMain(config ProjectConfig) string {
-	imports := []string{
-		`"github.com/ramusaaa/routix"`,
-		`"` + config.Name + `/config"`,
-		`"` + config.Name + `/routes"`,
-	}
-
-	if config.UseDatabase {
-		imports = append(imports, `"`+config.Name+`/database"`)
-	}
-
-	content := `package main
-
-import (
-	` + strings.Join(imports, "\n\t") + `
-)
-
-func main() {
-	cfg := config.Load()
-
-	// Initialize database
-`
-
-	if config.UseDatabase {
-		content += `	db := database.Connect(cfg)
-	defer database.Close(db)
-
-`
-	}
-
-	content += `	app := routix.NewAPI().
-		Prod().
-		JSON().
-		CORS()
-
-	// Serve static files
-	app.Static("/static", "./public")
-
-	// Register routes
-	routes.RegisterWeb(app`
-
-	if config.UseDatabase {
-		content += `, db`
-	}
-
-	content += `)
-	routes.RegisterAPI(app`
-
-	if config.UseDatabase {
-		content += `, db`
-	}
-
-	content += `)
-
-	app.Start(":" + cfg.Port)
-}`
-
-	return content
-}
-
-func generateMicroserviceMain(config ProjectConfig) string {
-	imports := []string{
-		`"github.com/ramusaaa/routix"`,
-		`"` + config.Name + `/config"`,
-		`"` + config.Name + `/routes"`,
-	}
-
-	if config.UseDatabase {
-		imports = append(imports, `"`+config.Name+`/database"`)
-	}
-
-	content := `package main
-
-import (
-	` + strings.Join(imports, "\n\t") + `
-)
-
-func main() {
-	cfg := config.Load()
-
-	// Initialize database
-`
-
-	if config.UseDatabase {
-		content += `	db := database.Connect(cfg)
-	defer database.Close(db)
-
-`
-	}
-
-	content += `	app := routix.NewAPI().
-		Prod().
-		JSON().
-		CORS().
-		Health("/health").
-		Metrics("/metrics").
-		RateLimit(1000, "1m").
-		Timeout("30s")
-
-	routes.RegisterAPI(app`
-
-	if config.UseDatabase {
-		content += `, db`
-	}
-
-	content += `)
-
-	app.Start(":" + cfg.Port)
-}`
-
-	return content
 }
 
 func GenerateEnv(projectName string, config ProjectConfig) {
@@ -361,19 +129,18 @@ import (
 )
 
 type Config struct {
-	AppName  string
-	AppEnv   string
-	Port     string
-	Host     string
-	Debug    bool
-	AppKey   string
+	AppName   string
+	AppEnv    string
+	Port      string
+	Host      string
+	Debug     bool
+	AppKey    string
 	JWTSecret string`
 
 	if config.UseDatabase {
 		content += `
 	Database DatabaseConfig`
 	}
-
 	if config.UseCache {
 		content += `
 	Redis    RedisConfig`
@@ -454,101 +221,6 @@ func getEnv(key, defaultValue string) string {
 	writeFile(filepath.Join(projectName, "config", "config.go"), content)
 }
 
-func GenerateAppStructure(projectName string, config ProjectConfig) {
-	// Generate base controller
-	generateBaseController(projectName)
-
-	// Generate welcome controller
-	generateWelcomeController(projectName)
-
-	// Generate base model if database is used
-	if config.UseDatabase {
-		generateBaseModel(projectName)
-	}
-}
-
-func generateBaseController(projectName string) {
-	content := `package controllers
-
-import (
-	"github.com/ramusaaa/routix"
-)
-
-type BaseController struct{}
-
-func (bc *BaseController) Success(c *routix.Context, data any) error {
-	return c.JSON(200, map[string]any{
-		"status": "success",
-		"data":   data,
-	})
-}
-
-func (bc *BaseController) Error(c *routix.Context, code int, message string) error {
-	return c.JSON(code, map[string]any{
-		"status":  "error",
-		"message": message,
-	})
-}
-
-func (bc *BaseController) Created(c *routix.Context, data any) error {
-	return c.JSON(201, map[string]any{
-		"status": "success",
-		"data":   data,
-	})
-}`
-
-	writeFile(filepath.Join(projectName, "app", "controllers", "base_controller.go"), content)
-}
-
-func generateWelcomeController(projectName string) {
-	content := `package controllers
-
-import (
-	"time"
-
-	"github.com/ramusaaa/routix"
-)
-
-type WelcomeController struct {
-	BaseController
-}
-
-func (wc *WelcomeController) Index(c *routix.Context) error {
-	return wc.Success(c, map[string]any{
-		"message":   "Welcome to ` + projectName + `!",
-		"version":   "1.0.0",
-		"framework": "Routix v0.3.10",
-	})
-}
-
-func (wc *WelcomeController) Health(c *routix.Context) error {
-	return wc.Success(c, map[string]any{
-		"status":    "healthy",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	})
-}`
-
-	writeFile(filepath.Join(projectName, "app", "controllers", "welcome_controller.go"), content)
-}
-
-func generateBaseModel(projectName string) {
-	content := `package models
-
-import (
-	"time"
-	"gorm.io/gorm"
-)
-
-type BaseModel struct {
-	ID        uint           ` + "`" + `gorm:"primarykey" json:"id"` + "`" + `
-	CreatedAt time.Time      ` + "`" + `json:"created_at"` + "`" + `
-	UpdatedAt time.Time      ` + "`" + `json:"updated_at"` + "`" + `
-	DeletedAt gorm.DeletedAt ` + "`" + `gorm:"index" json:"deleted_at,omitempty"` + "`" + `
-}`
-
-	writeFile(filepath.Join(projectName, "app", "models", "base_model.go"), content)
-}
-
 func writeFile(path, content string) {
 	os.MkdirAll(filepath.Dir(path), 0755)
 	file, err := os.Create(path)
@@ -557,7 +229,6 @@ func writeFile(path, content string) {
 		return
 	}
 	defer file.Close()
-
 	file.WriteString(content)
 	fmt.Printf("  ✓ Created %s\n", path)
 }
