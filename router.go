@@ -547,7 +547,7 @@ func printBanner(addr string, devMode bool) {
 	fmt.Println(`  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚═╝╚═╝  ╚═╝`)
 	fmt.Print("\033[0m")
 	fmt.Println()
-	fmt.Println("  \033[1mRoutix v0.3.10\033[0m  \033[90mby Ramusa Software Corporation\033[0m")
+	fmt.Println("  \033[1mRoutix v0.4.0\033[0m  \033[90mby Ramusa Software Corporation\033[0m")
 	fmt.Println()
 	fmt.Printf("  \033[36m->\033[0m  http://localhost%s\n", addr)
 	if devMode {

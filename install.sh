@@ -43,15 +43,15 @@ fi
 
 # Fallback to known latest version
 if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "" ]; then
-    echo "⚠️  Could not fetch latest version, using v0.3.10"
-    LATEST_VERSION="v0.3.10"
+    echo "⚠️  Could not fetch latest version, using v0.4.0"
+    LATEST_VERSION="v0.4.0"
 else
     echo "📋 Latest version: $LATEST_VERSION"
 fi
 
 # Install Routix
 echo "📦 Downloading and installing routix..."
-if [ "$LATEST_VERSION" = "v0.3.10" ]; then
+if [ "$LATEST_VERSION" = "v0.4.0" ]; then
     # If using fallback version, try @latest first
     echo "🔄 Trying @latest first..."
     if go install github.com/ramusaaa/routix/cmd/routix@latest 2>/dev/null; then
