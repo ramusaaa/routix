@@ -164,11 +164,12 @@ func CORS() Middleware {
 func Auth(validateToken func(string) bool) Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			token := c.Request.Header.Get("Authorization")
-			if token == "" {
+			header := c.Request.Header.Get("Authorization")
+			if header == "" {
 				return c.Error(fmt.Errorf("unauthorized"), "Authentication required")
 			}
 
+			token := strings.TrimPrefix(header, "Bearer ")
 			if !validateToken(token) {
 				return c.Error(fmt.Errorf("invalid token"), "Invalid authentication token")
 			}
@@ -181,30 +182,39 @@ func Auth(validateToken func(string) bool) Middleware {
 // RateLimit returns a middleware that implements rate limiting.
 // It limits the number of requests from a single IP address.
 func RateLimit(requests int, duration time.Duration) Middleware {
-	// Simple in-memory rate limiter
-	limiter := make(map[string][]time.Time)
+	type entry struct {
+		timestamps []time.Time
+	}
+	var mu sync.Mutex
+	limiter := make(map[string]*entry)
 
 	return func(next Handler) Handler {
 		return func(c *Context) error {
 			ip := c.Request.RemoteAddr
 
-			// Clean old timestamps
+			mu.Lock()
+			e, ok := limiter[ip]
+			if !ok {
+				e = &entry{}
+				limiter[ip] = e
+			}
+
 			now := time.Now()
-			var valid []time.Time
-			for _, t := range limiter[ip] {
+			valid := e.timestamps[:0]
+			for _, t := range e.timestamps {
 				if now.Sub(t) < duration {
 					valid = append(valid, t)
 				}
 			}
-			limiter[ip] = valid
+			e.timestamps = valid
 
-			// Check rate limit
-			if len(limiter[ip]) >= requests {
+			if len(e.timestamps) >= requests {
+				mu.Unlock()
 				return c.Error(fmt.Errorf("rate limit exceeded"), "Too many requests")
 			}
 
-			// Add current timestamp
-			limiter[ip] = append(limiter[ip], now)
+			e.timestamps = append(e.timestamps, now)
+			mu.Unlock()
 
 			return next(c)
 		}
