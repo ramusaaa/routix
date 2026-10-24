@@ -186,6 +186,10 @@ func Timeout(timeout time.Duration) Middleware {
 	}
 	return func(next Handler) Handler {
 		return func(c *Context) error {
+			controller := http.NewResponseController(c.Response)
+			if err := controller.SetReadDeadline(time.Now().Add(timeout)); err == nil {
+				defer controller.SetReadDeadline(time.Time{})
+			}
 			local := *c
 			local.Params = cloneMap(c.Params)
 			local.Query = cloneMap(c.Query)

@@ -25,8 +25,8 @@ func GenerateMain(projectName string, config ProjectConfig) {
 
 	if config.UseSwagger {
 		content = strings.Replace(content, "import (", "import (\n\t\""+config.Name+"/docs\"", 1)
-		content = strings.Replace(content, "\tapp.Start(", "\tdocs.Register(app.Build())\n\n\tapp.Start(", 1)
-		content = strings.Replace(content, "\tr.Start(", "\tdocs.Register(r)\n\n\tr.Start(", 1)
+		content = strings.Replace(content, "\tif err := app.Start(", "\tdocs.Register(app.Build())\n\n\tif err := app.Start(", 1)
+		content = strings.Replace(content, "\tif err := r.Start(", "\tdocs.Register(r)\n\n\tif err := r.Start(", 1)
 	}
 
 	writeFile(filepath.Join(projectName, "main.go"), content)
@@ -35,6 +35,8 @@ func GenerateMain(projectName string, config ProjectConfig) {
 func generateAPIMain(config ProjectConfig) string {
 	imports := []string{
 		`"github.com/ramusaaa/routix"`,
+		`"log"`,
+		`"net"`,
 		`"` + config.Name + `/config"`,
 		`"` + config.Name + `/routes"`,
 	}
@@ -80,20 +82,26 @@ func main() {
 	}
 	content += `)
 
-	app.Start(":" + cfg.Port)
+	if err := app.Start(net.JoinHostPort(cfg.Host, cfg.Port)); err != nil {
+ log.Fatal(err)
+ }
 }`
 
 	return content
 }
 
-func generateMinimalMain(_ ProjectConfig) string {
+func generateMinimalMain(config ProjectConfig) string {
 	return `package main
 
 import (
 	"github.com/ramusaaa/routix"
+ "log"
+ "net"
+ "` + config.Name + `/config"
 )
 
 func main() {
+ cfg := config.Load()
 	r := routix.New()
 
 	r.GET("/", func(c *routix.Context) error {
@@ -102,13 +110,17 @@ func main() {
 		})
 	})
 
-	r.Start(":8080")
+	if err := r.Start(net.JoinHostPort(cfg.Host, cfg.Port)); err != nil {
+ log.Fatal(err)
+ }
 }`
 }
 
 func generateFullstackMain(config ProjectConfig) string {
 	imports := []string{
 		`"github.com/ramusaaa/routix"`,
+		`"log"`,
+		`"net"`,
 		`"` + config.Name + `/config"`,
 		`"` + config.Name + `/routes"`,
 	}
@@ -147,7 +159,9 @@ func main() {
 	}
 	content += `)
 
-	app.Start(":" + cfg.Port)
+	if err := app.Start(net.JoinHostPort(cfg.Host, cfg.Port)); err != nil {
+ log.Fatal(err)
+ }
 }`
 
 	return content
@@ -156,6 +170,8 @@ func main() {
 func generateMicroserviceMain(config ProjectConfig) string {
 	imports := []string{
 		`"github.com/ramusaaa/routix"`,
+		`"log"`,
+		`"net"`,
 		`"` + config.Name + `/config"`,
 		`"` + config.Name + `/routes"`,
 	}
@@ -195,7 +211,9 @@ func main() {
 	}
 	content += `)
 
-	app.Start(":" + cfg.Port)
+	if err := app.Start(net.JoinHostPort(cfg.Host, cfg.Port)); err != nil {
+ log.Fatal(err)
+ }
 }`
 
 	return content

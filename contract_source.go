@@ -219,6 +219,11 @@ func sourceContract(typ types.Type, definitions map[string]any) (map[string]any,
 					}
 				}
 			}
+			if ref, ok := document["$ref"].(string); ok && tag.Get("validate") != "" {
+				if definition, ok := definitions[strings.TrimPrefix(ref, "#/components/schemas/")].(map[string]any); ok {
+					document = cloneMap(definition)
+				}
+			}
 			if err := applyContractRules(document, tag.Get("validate")); err != nil {
 				return nil, err
 			}

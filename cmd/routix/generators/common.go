@@ -83,9 +83,6 @@ build/
 # Node modules (if using frontend tools)
 node_modules/
 
-# Docker
-.dockerignore
-
 # Air (hot reload tool)
 .air.toml
 tmp/`

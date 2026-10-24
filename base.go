@@ -1,7 +1,9 @@
 package routix
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 )
 
 type Schema interface {
@@ -199,12 +201,17 @@ func (a *ArraySchema) Validate(value any) error {
 	}
 
 	if a.unique {
-		seen := make(map[any]bool)
+		seen := make(map[string]bool, len(arr))
 		for _, item := range arr {
-			if seen[item] {
+			encoded, err := json.Marshal(item)
+			if err != nil {
+				return fmt.Errorf("array item cannot be compared: %w", err)
+			}
+			key := string(encoded)
+			if seen[key] {
 				return fmt.Errorf("array must contain unique items")
 			}
-			seen[item] = true
+			seen[key] = true
 		}
 	}
 
@@ -236,7 +243,7 @@ func (o *ObjectSchema) AllowNull() *ObjectSchema {
 
 func (o *ObjectSchema) Validate(value any) error {
 	if value == nil {
-		if o.IsRequired() {
+		if o.IsRequired() && !o.allowNull {
 			return fmt.Errorf("value is required")
 		}
 		return nil
@@ -286,7 +293,7 @@ func (e *EnumSchema) Validate(value any) error {
 	}
 
 	for _, allowedValue := range e.values {
-		if value == allowedValue {
+		if reflect.DeepEqual(value, allowedValue) {
 			return nil
 		}
 	}

@@ -43,12 +43,12 @@ func frameworkVersion() string {
 			return info.Main.Version
 		}
 		for _, dependency := range info.Deps {
-			if dependency.Path == "github.com/ramusaaa/routix" && strings.HasPrefix(dependency.Version, "v") {
+			if dependency.Path == "github.com/ramusaaa/routix" && dependency.Replace == nil && strings.HasPrefix(dependency.Version, "v") {
 				return dependency.Version
 			}
 		}
 	}
-	return "v0.4.0"
+	return "v0.4.1-0.20261024180347-81b3dc1372a6"
 }
 
 func GenerateGoMod(projectName string, config ProjectConfig) {
@@ -84,7 +84,7 @@ func GenerateGoMod(projectName string, config ProjectConfig) {
 		requirements = append(requirements, "github.com/gorilla/websocket v1.5.1")
 	}
 
-	content := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire (", projectName)
+	content := fmt.Sprintf("module %s\n\ngo 1.25.0\n\nrequire (", projectName)
 	for _, req := range requirements {
 		content += fmt.Sprintf("\n\t%s", req)
 	}

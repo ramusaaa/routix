@@ -2,8 +2,9 @@ package routix
 
 import (
 	"fmt"
-	"path/filepath"
+	"path"
 	"reflect"
+	"sort"
 )
 
 type Module struct {
@@ -93,21 +94,31 @@ func (m *Module) GetService(t reflect.Type) (interface{}, bool) {
 }
 
 func (m *Module) Register(r *Router) {
-	for _, middleware := range m.Middleware {
-		r.Use(middleware)
-	}
+	m.register(r, "/", nil, make(map[*Module]bool))
+}
 
+func (m *Module) register(r *Router, prefix string, inherited []Middleware, active map[*Module]bool) {
+	if m == nil || active[m] {
+		panic("routix: cyclic or nil module")
+	}
+	active[m] = true
+	defer delete(active, m)
+	prefix = path.Join(prefix, m.Path)
+	middleware := append(append([]Middleware(nil), inherited...), m.Middleware...)
 	for _, route := range m.Routes {
-		path := filepath.Join(m.Path, route.Path)
-		r.Handle(route.Method, path, route.Handler)
+		r.handle(route.Method, path.Join(prefix, route.Path), route.Handler, middleware)
 	}
-
 	for _, controller := range m.Controllers {
-		controller.Register(r)
+		local := New()
+		controller.Register(local)
+		for _, route := range local.Routes() {
+			matched, _ := local.findRoute(local.trees[route.Method], route.Path, make(map[string]string))
+			scoped := append(append(append([]Middleware(nil), middleware...), local.middleware...), matched.middleware...)
+			r.handle(route.Method, path.Join(prefix, route.Path), matched.handler, scoped)
+		}
 	}
-
-	for _, subModule := range m.SubModules {
-		subModule.Register(r)
+	for _, child := range m.SubModules {
+		child.register(r, prefix, middleware, active)
 	}
 }
 
@@ -151,13 +162,13 @@ func (b *ModuleBuilder) Build() *Module {
 }
 
 type ServiceContainer struct {
-	services map[reflect.Type]interface{}
+	services   map[reflect.Type]interface{}
 	singletons map[reflect.Type]interface{}
 }
 
 func NewServiceContainer() *ServiceContainer {
 	return &ServiceContainer{
-		services: make(map[reflect.Type]interface{}),
+		services:   make(map[reflect.Type]interface{}),
 		singletons: make(map[reflect.Type]interface{}),
 	}
 }
@@ -176,11 +187,11 @@ func (sc *ServiceContainer) Get(t reflect.Type) (interface{}, bool) {
 	if singleton, ok := sc.singletons[t]; ok {
 		return singleton, true
 	}
-	
+
 	if service, ok := sc.services[t]; ok {
 		return service, true
 	}
-	
+
 	return nil, false
 }
 
@@ -189,15 +200,15 @@ func (sc *ServiceContainer) Resolve(ptr interface{}) error {
 	if v.Kind() != reflect.Ptr {
 		return fmt.Errorf("ptr must be a pointer")
 	}
-	
+
 	elem := v.Elem()
 	t := elem.Type()
-	
+
 	service, ok := sc.Get(t)
 	if !ok {
 		return fmt.Errorf("service of type %s not found", t.String())
 	}
-	
+
 	elem.Set(reflect.ValueOf(service))
 	return nil
 }
@@ -230,7 +241,13 @@ func NewDIContainer() *DIContainer {
 }
 
 func (di *DIContainer) RegisterTransient(factory func() interface{}) {
-	t := reflect.TypeOf(factory()).Elem()
+	if factory == nil {
+		panic("routix: transient factory must not be nil")
+	}
+	t := reflect.TypeOf(factory())
+	if t == nil {
+		panic("routix: transient factory must return a non-nil value")
+	}
 	di.dependencies[t] = &Dependency{
 		Type:    t,
 		Factory: factory,
@@ -253,7 +270,7 @@ func (di *DIContainer) Resolve(t reflect.Type) (interface{}, error) {
 	if !ok {
 		return nil, fmt.Errorf("dependency of type %s not registered", t.String())
 	}
-	
+
 	switch dep.Scope {
 	case Singleton:
 		if instance, ok := di.instances[t]; ok {
@@ -272,25 +289,25 @@ func (di *DIContainer) Resolve(t reflect.Type) (interface{}, error) {
 			return dep.Factory(), nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("cannot resolve dependency of type %s", t.String())
 }
 
 type ModuleRegistry struct {
-	modules map[string]*Module
+	modules   map[string]*Module
 	container *DIContainer
 }
 
 func NewModuleRegistry() *ModuleRegistry {
 	return &ModuleRegistry{
-		modules: make(map[string]*Module),
+		modules:   make(map[string]*Module),
 		container: NewDIContainer(),
 	}
 }
 
 func (mr *ModuleRegistry) RegisterModule(name string, module *Module) {
 	mr.modules[name] = module
-	
+
 	for t, service := range module.Services {
 		mr.container.RegisterSingleton(service)
 		_ = t
@@ -308,11 +325,16 @@ func (mr *ModuleRegistry) GetService(t reflect.Type) (interface{}, error) {
 
 func (mr *ModuleRegistry) BuildRouter() *Router {
 	router := New()
-	
-	for _, module := range mr.modules {
-		module.Register(router)
+
+	names := make([]string, 0, len(mr.modules))
+	for name := range mr.modules {
+		names = append(names, name)
 	}
-	
+	sort.Strings(names)
+	for _, name := range names {
+		mr.modules[name].Register(router)
+	}
+
 	return router
 }
 
@@ -323,7 +345,7 @@ type AppModule struct {
 
 func NewAppModule() *AppModule {
 	return &AppModule{
-		Module: NewModule("/"),
+		Module:   NewModule("/"),
 		registry: NewModuleRegistry(),
 	}
 }
@@ -339,5 +361,15 @@ func (app *AppModule) GetService(t reflect.Type) (interface{}, error) {
 }
 
 func (app *AppModule) CreateRouter() *Router {
-	return app.registry.BuildRouter()
+	router := New()
+	app.Module.Register(router)
+	names := make([]string, 0, len(app.registry.modules))
+	for name := range app.registry.modules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		app.registry.modules[name].register(router, app.Path, app.Middleware, make(map[*Module]bool))
+	}
+	return router
 }
