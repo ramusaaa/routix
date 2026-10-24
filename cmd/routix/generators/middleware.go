@@ -7,11 +7,11 @@ import (
 func GenerateMiddleware(projectName string, config ProjectConfig) {
 	generateCORSMiddleware(projectName)
 	generateLoggingMiddleware(projectName)
-	
+
 	if config.UseRateLimit {
 		generateRateLimitMiddleware(projectName)
 	}
-	
+
 	if config.UseAuth {
 		// Auth middleware is generated in auth.go
 	}
@@ -130,7 +130,7 @@ func Logger() routix.Middleware {
 				method,
 				path,
 				duration,
-				c.Request.RemoteAddr,
+				c.ClientIP(),
 				userAgent,
 			)
 
@@ -154,7 +154,7 @@ func DetailedLogger() routix.Middleware {
 			query := c.Request.URL.RawQuery
 			userAgent := c.GetHeader("User-Agent")
 			referer := c.GetHeader("Referer")
-			ip := c.Request.RemoteAddr
+			ip := c.ClientIP()
 
 			logData := map[string]interface{}{
 				"method":     method,
@@ -242,7 +242,7 @@ func RateLimit(limit int, window time.Duration) routix.Middleware {
 	return func(next routix.Handler) routix.Handler {
 		return func(c *routix.Context) error {
 			// Use IP as key (you might want to use user ID for authenticated requests)
-			key := c.Request.RemoteAddr
+			key := c.ClientIP()
 			
 			if !limiter.Allow(key) {
 				return c.JSON(429, map[string]interface{}{
@@ -266,7 +266,7 @@ func RateLimitByUser(limit int, window time.Duration) routix.Middleware {
 	return func(next routix.Handler) routix.Handler {
 		return func(c *routix.Context) error {
 			// Try to get user ID from context (set by auth middleware)
-			key := c.Request.RemoteAddr // Fallback to IP
+			key := c.ClientIP() // Fallback to IP
 			
 			// TODO: Get user ID from JWT token or session
 			// if userID := getUserIDFromContext(c); userID != "" {

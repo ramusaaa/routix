@@ -6,28 +6,36 @@ import (
 	"os/exec"
 )
 
-func TestCommand(args []string) {
+func TestCommand(args []string) error {
 	testType := "all"
 	verbose := false
 	coverage := false
 
+	selected := false
 	for _, arg := range args {
 		switch arg {
-		case "unit":
-			testType = "unit"
-		case "integration":
-			testType = "integration"
+		case "all", "unit", "integration":
+			if selected && testType != arg {
+				return fmt.Errorf("choose one test scope: all, unit or integration")
+			}
+			testType = arg
+			selected = true
 		case "--verbose", "-v":
 			verbose = true
 		case "--coverage", "-c":
 			coverage = true
+		case "--help", "-h":
+			showTestHelp()
+			return nil
+		default:
+			return fmt.Errorf("unknown test argument: %s", arg)
 		}
 	}
 
-	runTests(testType, verbose, coverage)
+	return runTests(testType, verbose, coverage)
 }
 
-func runTests(testType string, verbose, coverage bool) {
+func runTests(testType string, verbose, coverage bool) error {
 	fmt.Printf("Running %s tests...\n", testType)
 
 	var testPath string
@@ -37,13 +45,7 @@ func runTests(testType string, verbose, coverage bool) {
 	case "integration":
 		testPath = "./tests/integration/..."
 	default:
-		testPath = "./tests/..."
-	}
-
-	if _, err := os.Stat("tests"); os.IsNotExist(err) {
-		fmt.Printf("Tests directory not found\n")
-		fmt.Printf(" Run 'routix make:test ExampleTest' to create your first test\n")
-		return
+		testPath = "./..."
 	}
 
 	args := []string{"test"}
@@ -63,16 +65,16 @@ func runTests(testType string, verbose, coverage bool) {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Tests failed\n")
-		return
+		return fmt.Errorf("run %s tests: %w", testType, err)
 	}
 
-	fmt.Printf("All tests passed!")
+	fmt.Printf("All tests passed!\n")
 
 	if coverage {
 		fmt.Printf("Coverage report generated: coverage.out\n")
 		fmt.Printf("View coverage: go tool cover -html=coverage.out\n")
 	}
+	return nil
 }
 
 func showTestHelp() {

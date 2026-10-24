@@ -164,6 +164,10 @@ func (api *APIBuilder) Start(addr string) error {
 		api.router.GET("/", WelcomeHandler("Routix"))
 	}
 
+	if listed, err := api.router.writeRouteList(); listed {
+		return err
+	}
+
 	printBanner(addr, DevMode)
 
 	srv := &http.Server{
@@ -183,6 +187,10 @@ func (api *APIBuilder) StartTLS(addr, certFile, keyFile string) error {
 		api.router.GET("/", WelcomeHandler("Routix"))
 	}
 
+	if listed, err := api.router.writeRouteList(); listed {
+		return err
+	}
+
 	printBanner(addr, DevMode)
 
 	srv := &http.Server{
@@ -193,7 +201,9 @@ func (api *APIBuilder) StartTLS(addr, certFile, keyFile string) error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	return srv.ListenAndServeTLS(certFile, keyFile)
+	return serveWithShutdown(srv, func() error {
+		return srv.ListenAndServeTLS(certFile, keyFile)
+	})
 }
 
 // Shortcut functions for common patterns

@@ -326,3 +326,14 @@ func NewEnumSchema(values ...any) *EnumSchema {
 		values:     values,
 	}
 }
+func (s *StringSchema) Required() *StringSchema { s.BaseSchema.Required(); return s }
+
+func (s *NumberSchema) Required() *NumberSchema { s.BaseSchema.Required(); return s }
+
+func (s *BooleanSchema) Required() *BooleanSchema { s.BaseSchema.Required(); return s }
+
+func (s *ArraySchema) Required() *ArraySchema { s.BaseSchema.Required(); return s }
+
+func (s *ObjectSchema) Required() *ObjectSchema { s.BaseSchema.Required(); return s }
+
+func (s *EnumSchema) Required() *EnumSchema { s.BaseSchema.Required(); return s }

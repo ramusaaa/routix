@@ -78,6 +78,9 @@ type Context struct {
 	bodyErr   error
 	bodyLimit int64
 	handler   Handler
+	clientIP  string
+	routePath string
+	secure    bool
 }
 
 // Set stores a value in the context, scoped to this request.
@@ -125,6 +128,9 @@ func getContextFromPool(req *http.Request, w *responseWriter, params, query map[
 	ctx.bodyErr = nil
 	ctx.bodyLimit = 1 << 20
 	ctx.handler = nil
+	ctx.clientIP = ""
+	ctx.routePath = ""
+	ctx.secure = false
 	return ctx
 }
 
@@ -141,6 +147,9 @@ func putContextToPool(ctx *Context) {
 	ctx.bodyErr = nil
 	ctx.bodyLimit = 1 << 20
 	ctx.handler = nil
+	ctx.clientIP = ""
+	ctx.routePath = ""
+	ctx.secure = false
 	putContext(ctx)
 }
 
@@ -155,16 +164,17 @@ type RouteInfo struct {
 
 // Router is the core HTTP router.
 type Router struct {
-	trees        map[string]*node
-	routes       []RouteInfo
-	params       *sync.Pool
-	notFound     Handler
-	notMethod    Handler
-	middleware   []Middleware
-	cache        sync.Map
-	devMode      bool
-	MaxBodyBytes int64
-	mu           sync.RWMutex
+	trees          map[string]*node
+	routes         []RouteInfo
+	params         *sync.Pool
+	notFound       Handler
+	notMethod      Handler
+	middleware     []Middleware
+	cache          sync.Map
+	devMode        bool
+	MaxBodyBytes   int64
+	trustedProxies []*net.IPNet
+	mu             sync.RWMutex
 }
 
 type node struct {
@@ -174,6 +184,7 @@ type node struct {
 	params     []string
 	wildcard   bool
 	paramNames []string
+	routeIndex int
 }
 
 // Middleware wraps a Handler with additional logic.
@@ -270,18 +281,12 @@ func (r *Router) Handle(method, path string, handler Handler) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.routes = append(r.routes, RouteInfo{Method: method, Path: path})
 
 	if _, ok := r.trees[method]; !ok {
 		r.trees[method] = &node{children: make(map[string]*node)}
 	}
 
 	root := r.trees[method]
-
-	if path == "/" {
-		root.handler = handler
-		return
-	}
 
 	for _, part := range parts {
 		if part == "" {
@@ -318,6 +323,12 @@ func (r *Router) Handle(method, path string, handler Handler) {
 			root = root.children[part]
 		}
 
+	}
+	if root.handler == nil {
+		root.routeIndex = len(r.routes)
+		r.routes = append(r.routes, RouteInfo{Method: method, Path: path})
+	} else {
+		r.routes[root.routeIndex] = RouteInfo{Method: method, Path: path}
 	}
 	root.handler = handler
 	root.paramNames = names
@@ -409,14 +420,21 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer putContextToPool(ctx)
 
 	r.mu.RLock()
-	handler, found := r.findHandler(r.trees[req.Method], req.URL.Path, params)
+	matched, found := r.findRoute(r.trees[req.Method], req.URL.Path, params)
 	if !found && req.Method == http.MethodHead {
-		handler, found = r.findHandler(r.trees[http.MethodGet], req.URL.Path, params)
+		matched, found = r.findRoute(r.trees[http.MethodGet], req.URL.Path, params)
 	}
+	var handler Handler
+	if found {
+		handler = matched.handler
+		ctx.routePath = r.routes[matched.routeIndex].Path
+	}
+	ctx.clientIP = r.requestClientIP(req)
+	ctx.secure = r.requestIsSecure(req)
 	if !found {
 		allowed := make(map[string]bool)
 		for method, root := range r.trees {
-			if _, ok := r.findHandler(root, req.URL.Path, make(map[string]string)); ok {
+			if _, ok := r.findRoute(root, req.URL.Path, make(map[string]string)); ok {
 				allowed[method] = true
 			}
 		}
@@ -478,7 +496,7 @@ func writeHandlerError(c *Context, err error) {
 	_ = c.JSON(http.StatusInternalServerError, ErrorResponse{Code: http.StatusInternalServerError, Message: "Internal Server Error"})
 }
 
-func (r *Router) findHandler(root *node, path string, params map[string]string) (Handler, bool) {
+func (r *Router) findRoute(root *node, path string, params map[string]string) (*node, bool) {
 	if root == nil {
 		return nil, false
 	}
@@ -520,7 +538,7 @@ func (r *Router) findHandler(root *node, path string, params map[string]string) 
 		return nil
 	}
 	if leaf := match(root, 0, 0); leaf != nil {
-		return leaf.handler, true
+		return leaf, true
 	}
 	return nil, false
 }
@@ -605,6 +623,10 @@ func (r *Router) Start(addr string) error {
 		r.GET("/", WelcomeHandler("Routix"))
 	}
 
+	if listed, err := r.writeRouteList(); listed {
+		return err
+	}
+
 	printBanner(addr, false)
 
 	srv := &http.Server{
@@ -619,25 +641,32 @@ func (r *Router) Start(addr string) error {
 }
 
 func listenAndServe(srv *http.Server) error {
+	return serveWithShutdown(srv, srv.ListenAndServe)
+}
+
+func serveWithShutdown(srv *http.Server, serve func() error) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(quit)
 
 	errCh := make(chan error, 1)
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
-		}
-	}()
+	go func() { errCh <- serve() }()
 
 	select {
 	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
 		return err
 	case <-quit:
 		fmt.Println("\nshutting down...")
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return srv.Shutdown(ctx)
+		if err := srv.Shutdown(ctx); err != nil {
+			srv.Close()
+			return err
+		}
+		return nil
 	}
 }
 

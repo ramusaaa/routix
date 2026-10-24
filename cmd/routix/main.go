@@ -33,9 +33,15 @@ func main() {
 			commands.MakeCommand(args)
 		}
 	case command == "serve" || command == "dev":
-		commands.ServeCommand(args)
+		if err := commands.ServeCommand(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case command == "build":
-		commands.BuildCommand(args)
+		if err := commands.BuildCommand(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case command == "migrate":
 		if err := commands.MigrateCommand(args); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -46,10 +52,20 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case command == "route":
-		commands.RouteCommand(args)
+	case command == "route" || command == "route:list":
+		routeArgs := args
+		if command == "route:list" {
+			routeArgs = append([]string{"list"}, args...)
+		}
+		if err := commands.RouteCommand(routeArgs); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case command == "test":
-		commands.TestCommand(args)
+		if err := commands.TestCommand(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case command == "install":
 		commands.InstallCommand(args)
 	case command == "version" || command == "--version" || command == "-v":
