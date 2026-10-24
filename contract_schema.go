@@ -82,7 +82,9 @@ func nullableContract(document map[string]any, definitions map[string]any) map[s
 	if ref, ok := document["$ref"].(string); ok {
 		kind := any("object")
 		if definition, ok := definitions[strings.TrimPrefix(ref, "#/components/schemas/")].(map[string]any); ok {
-			kind = definition["type"]
+			result := cloneMap(definition)
+			result["nullable"] = true
+			return result
 		}
 		result := map[string]any{"nullable": true, "allOf": []any{document}}
 		if kind != nil {

@@ -112,7 +112,7 @@ func ConvertError(err error, fallbackMessage string) error {
 
 	return &RespondError{
 		Status:    StatusError,
-		Data:      map[string]string{"message": err.Error()},
+		Data:      map[string]string{"message": fallbackMessage},
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 }
@@ -128,10 +128,14 @@ func (c *Context) JSON(status int, data interface{}) error {
 func (c *Context) FastJSON(status int, data interface{}) error {
 	c.Response.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.Response.WriteHeader(status)
-	
+
 	switch v := data.(type) {
 	case string:
-		_, err := c.Response.Write([]byte(`"` + v + `"`))
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		_, err = c.Response.Write(encoded)
 		return err
 	case int:
 		_, err := fmt.Fprintf(c.Response, "%d", v)

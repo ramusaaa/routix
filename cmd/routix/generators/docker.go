@@ -2,6 +2,7 @@ package generators
 
 import (
 	"path/filepath"
+	"strings"
 )
 
 func GenerateDockerFiles(projectName string, config ProjectConfig) {
@@ -12,7 +13,7 @@ func GenerateDockerFiles(projectName string, config ProjectConfig) {
 
 func generateDockerfile(projectName string, config ProjectConfig) {
 	content := `# Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26.10-alpine AS builder
 
 # Install git and ca-certificates
 RUN apk add --no-cache git ca-certificates
@@ -44,9 +45,6 @@ WORKDIR /root/
 # Copy binary from builder stage
 COPY --from=builder /app/main .
 
-# Copy configuration files if they exist
-COPY --from=builder /app/.env* ./
-
 # Create storage directories
 RUN mkdir -p storage/logs storage/cache
 
@@ -60,6 +58,11 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 # Run the application
 CMD ["./main"]`
 
+	if config.UseDatabase && config.DatabaseType == "sqlite" {
+		content = strings.Replace(content, "apk add --no-cache git ca-certificates", "apk add --no-cache git ca-certificates gcc musl-dev", 1)
+		content = strings.Replace(content, "CGO_ENABLED=0", "CGO_ENABLED=1", 1)
+	}
+
 	writeFile(filepath.Join(projectName, "Dockerfile"), content)
 }
 
@@ -71,14 +74,17 @@ services:
     build: .
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       - APP_ENV=production
-      - APP_PORT=8080`
+      - APP_PORT=8080
+      - APP_HOST=0.0.0.0`
 
 	if config.UseDatabase {
 		content += `
       - DB_HOST=database`
-		
+
 		switch config.DatabaseType {
 		case "postgres":
 			content += `
@@ -101,10 +107,12 @@ services:
       - REDIS_PORT=6379`
 	}
 
-	content += `
+	if config.UseCache || config.UseDatabase && config.DatabaseType != "sqlite" {
+		content += `
     depends_on:`
+	}
 
-	if config.UseDatabase {
+	if config.UseDatabase && config.DatabaseType != "sqlite" {
 		content += `
       - database`
 	}
@@ -175,10 +183,11 @@ services:
 
 networks:
   app-network:
-    driver: bridge
+    driver: bridge`
 
-volumes:`
-
+	if config.UseCache || config.UseDatabase && config.DatabaseType != "sqlite" {
+		content += "\n\nvolumes:"
+	}
 	if config.UseDatabase {
 		switch config.DatabaseType {
 		case "postgres":
@@ -205,15 +214,22 @@ services:
     build: .
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       - APP_ENV=development
       - APP_DEBUG=true
+      - APP_PORT=8080
+      - APP_HOST=0.0.0.0
     volumes:
       - .:/root/app
-      - ./storage:/root/storage
+      - ./storage:/root/storage`
+	if config.UseCache || config.UseDatabase && config.DatabaseType != "sqlite" {
+		devContent += `
     depends_on:`
+	}
 
-	if config.UseDatabase {
+	if config.UseDatabase && config.DatabaseType != "sqlite" {
 		devContent += `
       - database`
 	}
@@ -276,10 +292,11 @@ services:
 
 networks:
   app-network:
-    driver: bridge
+    driver: bridge`
 
-volumes:`
-
+	if config.UseDatabase && config.DatabaseType != "sqlite" {
+		devContent += "\n\nvolumes:"
+	}
 	if config.UseDatabase {
 		switch config.DatabaseType {
 		case "postgres":
@@ -301,11 +318,11 @@ func generateDockerIgnore(projectName string) {
 
 # Documentation
 README.md
-docs/
 
 # Development files
-.env.local
-.env.development
+.env
+.env.*
+!.env.example
 *.log
 
 # IDE

@@ -185,6 +185,7 @@ type node struct {
 	wildcard   bool
 	paramNames []string
 	routeIndex int
+	middleware []Middleware
 }
 
 // Middleware wraps a Handler with additional logic.
@@ -247,6 +248,10 @@ func (r *Router) Routes() []RouteInfo {
 
 // Handle registers a handler for the given method and path.
 func (r *Router) Handle(method, path string, handler Handler) {
+	r.handle(method, path, handler, nil)
+}
+
+func (r *Router) handle(method, path string, handler Handler, middleware []Middleware) {
 	if handler == nil {
 		panic("routix: handler must not be nil")
 	}
@@ -331,6 +336,7 @@ func (r *Router) Handle(method, path string, handler Handler) {
 		r.routes[root.routeIndex] = RouteInfo{Method: method, Path: path}
 	}
 	root.handler = handler
+	root.middleware = append([]Middleware(nil), middleware...)
 	root.paramNames = names
 }
 
@@ -453,13 +459,13 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	middleware := append([]Middleware(nil), r.middleware...)
+	if found {
+		middleware = append(middleware, matched.middleware...)
+	}
 	maxBody := r.MaxBodyBytes
 	ctx.bodyLimit = maxBody
 	r.mu.RUnlock()
 
-	if found && ctx.IsJSON() && req.Body != nil && req.Body != http.NoBody {
-		_ = ctx.readJSONBody(maxBody)
-	}
 	ctx.handler = handler
 	handler = executeHandler
 	for i := len(middleware) - 1; i >= 0; i-- {
@@ -471,6 +477,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func executeHandler(c *Context) error {
+	if c.routePath != "" && c.IsJSON() && c.Request.Body != nil && c.Request.Body != http.NoBody {
+		_ = c.readJSONBody(c.bodyLimit)
+	}
 	if c.bodyErr != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(c.bodyErr, &tooLarge) {
@@ -578,7 +587,7 @@ func (g *Group) Group(prefix string) *Group {
 }
 
 func (g *Group) Handle(method, path string, handler Handler) {
-	g.router.Handle(method, g.prefix+path, g.applyMiddleware(handler))
+	g.router.handle(method, g.prefix+path, handler, g.middleware)
 }
 
 func (g *Group) GET(path string, handler Handler)     { g.Handle(http.MethodGet, path, handler) }
