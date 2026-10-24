@@ -23,6 +23,12 @@ func GenerateMain(projectName string, config ProjectConfig) {
 		content = generateAPIMain(config)
 	}
 
+	if config.UseSwagger {
+		content = strings.Replace(content, "import (", "import (\n\t\""+config.Name+"/docs\"", 1)
+		content = strings.Replace(content, "\tapp.Start(", "\tdocs.Register(app.Build())\n\n\tapp.Start(", 1)
+		content = strings.Replace(content, "\tr.Start(", "\tdocs.Register(r)\n\n\tr.Start(", 1)
+	}
+
 	writeFile(filepath.Join(projectName, "main.go"), content)
 }
 

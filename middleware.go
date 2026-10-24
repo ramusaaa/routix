@@ -37,7 +37,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"math"
-	"net"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -143,10 +142,7 @@ func RateLimit(requests int, duration time.Duration) Middleware {
 	nextCleanup := time.Now().Add(duration)
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			ip := c.Request.RemoteAddr
-			if host, _, err := net.SplitHostPort(ip); err == nil {
-				ip = host
-			}
+			ip := c.ClientIP()
 			now := time.Now()
 			mu.Lock()
 			if !now.Before(nextCleanup) {

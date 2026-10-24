@@ -40,8 +40,8 @@ Database Commands:
   seed                    Run database seeders
 
 Development Tools:
-  route list              Show all registered routes
-  route cache             Cache routes for better performance
+  route:list              Show registered routes from the current application
+  route list              Alias for route:list
   test                    Run all tests
   test unit               Run unit tests only
   test integration        Run integration tests only

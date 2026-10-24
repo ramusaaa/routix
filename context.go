@@ -106,13 +106,10 @@ func (c *Context) IsAjax() bool {
 }
 
 func (c *Context) ClientIP() string {
-	if xff := c.Request.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
+	if c.clientIP != "" {
+		return c.clientIP
 	}
-	if xri := c.Request.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	return c.Request.RemoteAddr
+	return remoteIP(c.Request.RemoteAddr)
 }
 
 func (c *Context) UserAgent() string {

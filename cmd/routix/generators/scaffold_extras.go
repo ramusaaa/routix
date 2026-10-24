@@ -5,25 +5,18 @@ import "path/filepath"
 func GenerateSwaggerFiles(projectName string, config ProjectConfig) {
 	swaggerContent := `package docs
 
-// @title ` + projectName + ` API
-// @version 1.0
-// @description This is the API documentation for ` + projectName + `
-// @termsOfService http://swagger.io/terms/
+import "github.com/ramusaaa/routix"
 
-// @contact.name API Support
-// @contact.url http://www.swagger.io/support
-// @contact.email support@swagger.io
-
-// @license.name MIT
-// @license.url https://opensource.org/licenses/MIT
-
-// @host localhost:8080
-// @BasePath /api/v1
-
-// @securityDefinitions.apikey BearerAuth
-// @in header
-// @name Authorization
-// @description Type "Bearer" followed by a space and JWT token.
+func Register(router *routix.Router) *routix.CodeGenerator {
+ generator:=routix.NewCodeGenerator().BindRouter(router)
+ router.GET("/openapi.json",generator.OpenAPIHandler())
+ router.GET("/contracts.ts",func(c *routix.Context)error{
+  content,err:=generator.TypeScriptTypes();if err!=nil{return err}
+  c.SetHeader("Content-Type","text/plain; charset=utf-8")
+  _,err=c.Response.Write([]byte(content));return err
+ })
+ return generator
+}
 `
 
 	writeFile(filepath.Join(projectName, "docs", "swagger.go"), swaggerContent)

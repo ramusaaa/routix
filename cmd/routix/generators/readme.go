@@ -34,7 +34,7 @@ A modern Go web application built with [Routix](https://github.com/ramusaaa/rout
 
 	if config.UseSwagger {
 		content += `
-- 📚 **API Documentation** - Auto-generated Swagger docs`
+- 📚 **API Documentation** - OpenAPI and TypeScript contracts`
 	}
 
 	content += `
@@ -90,7 +90,7 @@ Your application will be available at: **http://localhost:8080**`
 	if config.UseSwagger {
 		content += `
 
-📚 **API Documentation**: http://localhost:8080/docs`
+📚 **API Documentation**: http://localhost:8080/openapi.json`
 	}
 
 	content += `

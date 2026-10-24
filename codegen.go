@@ -1,32 +1,44 @@
 package routix
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
+	"net/http"
+	"sort"
+	"strconv"
+
+	"github.com/getkin/kin-openapi/openapi3"
 	"reflect"
 	"strings"
 )
 
 type CodeGenerator struct {
-	schemas map[string]Schema
-	routes  []RouteDefinition
+	schemas   map[string]Schema
+	routes    []RouteDefinition
+	router    *Router
+	typeNames map[reflect.Type]string
 }
 
 type RouteDefinition struct {
-	Method      string
-	Path        string
-	Handler     string
-	Middleware  []string
-	RequestBody Schema
-	Response    Schema
+	Method       string
+	Path         string
+	Handler      string
+	Middleware   []string
+	RequestBody  Schema
+	Response     Schema
+	RequestType  any
+	ResponseType any
+	StatusCode   int
+	Summary      string
+	OperationID  string
 }
 
 func NewCodeGenerator() *CodeGenerator {
 	return &CodeGenerator{
-		schemas: make(map[string]Schema),
-		routes:  make([]RouteDefinition, 0),
+		schemas:   make(map[string]Schema),
+		typeNames: make(map[reflect.Type]string),
+		routes:    make([]RouteDefinition, 0),
 	}
 }
 
@@ -39,152 +51,232 @@ func (cg *CodeGenerator) AddRoute(route RouteDefinition) {
 }
 
 func (cg *CodeGenerator) GenerateValidationCode(structType reflect.Type) string {
-	var code strings.Builder
-	
-	code.WriteString(fmt.Sprintf("func Validate%s(obj %s) error {\n", structType.Name(), structType.Name()))
-	
-	for i := 0; i < structType.NumField(); i++ {
-		field := structType.Field(i)
-		tag := field.Tag.Get("validate")
-		
-		if tag != "" {
-			code.WriteString(fmt.Sprintf("    // Validate %s\n", field.Name))
-			rules := strings.Split(tag, ",")
-			
-			for _, rule := range rules {
-				switch {
-				case rule == "required":
-					code.WriteString(fmt.Sprintf("    if obj.%s == \"\" {\n", field.Name))
-					code.WriteString(fmt.Sprintf("        return fmt.Errorf(\"%s is required\")\n", field.Name))
-					code.WriteString("    }\n")
-				case strings.HasPrefix(rule, "min="):
-					min := rule[4:]
-					code.WriteString(fmt.Sprintf("    if len(obj.%s) < %s {\n", field.Name, min))
-					code.WriteString(fmt.Sprintf("        return fmt.Errorf(\"%s must be at least %s characters\")\n", field.Name, min))
-					code.WriteString("    }\n")
-				case strings.HasPrefix(rule, "max="):
-					max := rule[4:]
-					code.WriteString(fmt.Sprintf("    if len(obj.%s) > %s {\n", field.Name, max))
-					code.WriteString(fmt.Sprintf("        return fmt.Errorf(\"%s must be at most %s characters\")\n", field.Name, max))
-					code.WriteString("    }\n")
-				}
-			}
-		}
+	name := structType.Name()
+	if name == "" {
+		name = cg.typeNames[structType]
 	}
-	
-	code.WriteString("    return nil\n")
-	code.WriteString("}\n")
-	
-	return code.String()
+	if name == "" {
+		panic("routix: validation generation requires a named struct")
+	}
+	return fmt.Sprintf("func Validate%s(obj %s) error {\n return routix.ValidateStruct(obj)\n}\n", name, name)
 }
 
 func (cg *CodeGenerator) GenerateRouterCode() string {
 	var code strings.Builder
-	
+
 	code.WriteString("func SetupRoutes(r *routix.Router) {\n")
-	
+
 	for _, route := range cg.routes {
-		code.WriteString(fmt.Sprintf("    r.%s(\"%s\", %s)\n", 
-			strings.ToUpper(route.Method), 
-			route.Path, 
+		code.WriteString(fmt.Sprintf("    r.%s(\"%s\", %s)\n",
+			strings.ToUpper(route.Method),
+			route.Path,
 			route.Handler))
 	}
-	
+
 	code.WriteString("}\n")
-	
+
 	return code.String()
 }
 
 func (cg *CodeGenerator) GenerateMiddlewareCode(middlewares []string) string {
 	var code strings.Builder
-	
+
 	code.WriteString("func SetupMiddleware(r *routix.Router) {\n")
-	
+
 	for _, middleware := range middlewares {
 		code.WriteString(fmt.Sprintf("    r.Use(routix.%s())\n", middleware))
 	}
-	
+
 	code.WriteString("}\n")
-	
+
 	return code.String()
 }
 
-func (cg *CodeGenerator) ParseStructFromFile(filename, structName string) (reflect.Type, error) {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+func (cg *CodeGenerator) BindRouter(router *Router) *CodeGenerator { cg.router = router; return cg }
+
+func (cg *CodeGenerator) AddType(name string, value any) error {
+	schema, err := SchemaFromType(value)
+	if err != nil {
+		return err
+	}
+	cg.AddSchema(name, schema)
+	return nil
+}
+
+func (cg *CodeGenerator) contractRoutes() ([]RouteDefinition, error) {
+	if cg.router == nil {
+		return append([]RouteDefinition(nil), cg.routes...), nil
+	}
+	configured := map[RouteInfo]RouteDefinition{}
+	for _, route := range cg.routes {
+		key := RouteInfo{Method: strings.ToUpper(route.Method), Path: route.Path}
+		if _, exists := configured[key]; exists {
+			return nil, fmt.Errorf("duplicate route contract %s %s", key.Method, key.Path)
+		}
+		configured[key] = route
+	}
+	routes := []RouteDefinition{}
+	for _, info := range cg.router.Routes() {
+		route, exists := configured[info]
+		if !exists {
+			route = RouteDefinition{Method: info.Method, Path: info.Path}
+		}
+		routes = append(routes, route)
+		delete(configured, info)
+	}
+	if len(configured) > 0 {
+		return nil, fmt.Errorf("route contract does not match a registered route")
+	}
+	return routes, nil
+}
+
+func (cg *CodeGenerator) OpenAPI() (map[string]any, error) {
+	definitions := map[string]any{}
+	names := make([]string, 0, len(cg.schemas))
+	for name := range cg.schemas {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		document, err := schemaContract(cg.schemas[name], definitions)
+		if err != nil {
+			return nil, err
+		}
+		if old, exists := definitions[name]; exists && !reflect.DeepEqual(old, document) {
+			return nil, fmt.Errorf("conflicting schema name %s", name)
+		}
+		definitions[name] = document
+	}
+	paths := map[string]any{}
+	routes, err := cg.contractRoutes()
 	if err != nil {
 		return nil, err
 	}
-
-	for _, decl := range node.Decls {
-		if genDecl, ok := decl.(*ast.GenDecl); ok {
-			for _, spec := range genDecl.Specs {
-				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-					if typeSpec.Name.Name == structName {
-						// This is a simplified version
-						// In a real implementation, you'd need to properly parse the AST
-						return nil, fmt.Errorf("struct parsing not fully implemented")
-					}
-				}
+	for _, route := range routes {
+		method := strings.ToLower(route.Method)
+		switch method {
+		case "get", "put", "post", "delete", "options", "head", "patch", "trace":
+		default:
+			return nil, fmt.Errorf("unsupported OpenAPI method %s", route.Method)
+		}
+		if route.Path == "" || route.Path[0] != '/' {
+			return nil, fmt.Errorf("invalid route path %q", route.Path)
+		}
+		parts := strings.Split(route.Path, "/")
+		parameters := []any{}
+		for i, part := range parts {
+			parameter := ""
+			if strings.HasPrefix(part, ":") {
+				parameter = strings.TrimPrefix(part, ":")
+			}
+			if part == "*" {
+				parameter = "wildcard"
+			}
+			if parameter != "" {
+				parts[i] = "{" + parameter + "}"
+				parameters = append(parameters, map[string]any{"name": parameter, "in": "path", "required": true, "schema": map[string]any{"type": "string"}})
 			}
 		}
+		path := strings.Join(parts, "/")
+		item, ok := paths[path].(map[string]any)
+		if !ok {
+			item = map[string]any{}
+			paths[path] = item
+		}
+		if _, exists := item[method]; exists {
+			return nil, fmt.Errorf("duplicate OpenAPI operation %s %s", method, path)
+		}
+		status := route.StatusCode
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if status < 100 || status > 599 {
+			return nil, fmt.Errorf("invalid response status %d", status)
+		}
+		response := map[string]any{"description": http.StatusText(status)}
+		if response["description"] == "" {
+			response["description"] = "Response"
+		}
+		responseSchema := route.Response
+		if route.ResponseType != nil {
+			if responseSchema != nil {
+				return nil, fmt.Errorf("choose response schema or response type")
+			}
+			responseSchema, err = SchemaFromType(route.ResponseType)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if responseSchema != nil {
+			if status == http.StatusNoContent || status == http.StatusNotModified {
+				return nil, fmt.Errorf("response status %d cannot contain a body", status)
+			}
+			document, err := schemaContract(responseSchema, definitions)
+			if err != nil {
+				return nil, err
+			}
+			response["content"] = map[string]any{"application/json": map[string]any{"schema": document}}
+		}
+		operation := map[string]any{"responses": map[string]any{strconv.Itoa(status): response}}
+		if route.Summary != "" {
+			operation["summary"] = route.Summary
+		}
+		if route.OperationID != "" {
+			operation["operationId"] = route.OperationID
+		}
+		if len(parameters) > 0 {
+			operation["parameters"] = parameters
+		}
+		requestSchema := route.RequestBody
+		if route.RequestType != nil {
+			if requestSchema != nil {
+				return nil, fmt.Errorf("choose request schema or request type")
+			}
+			requestSchema, err = SchemaFromType(route.RequestType)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if requestSchema != nil {
+			document, err := schemaContract(requestSchema, definitions)
+			if err != nil {
+				return nil, err
+			}
+			operation["requestBody"] = map[string]any{"required": requestSchema.IsRequired(), "content": map[string]any{"application/json": map[string]any{"schema": document}}}
+		}
+		item[method] = operation
 	}
-	
-	return nil, fmt.Errorf("struct %s not found in file %s", structName, filename)
+	document := map[string]any{"openapi": "3.0.3", "info": map[string]any{"title": "Routix API", "version": "1.0.0"}, "paths": paths, "components": map[string]any{"schemas": definitions}}
+	data, err := json.Marshal(document)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := openapi3.NewLoader().LoadFromData(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := parsed.Validate(context.Background()); err != nil {
+		return nil, err
+	}
+	return document, nil
 }
 
 func (cg *CodeGenerator) GenerateOpenAPISpec() map[string]interface{} {
-	spec := map[string]interface{}{
-		"openapi": "3.0.0",
-		"info": map[string]interface{}{
-			"title":   "Routix API",
-			"version": "1.0.0",
-		},
-		"paths": make(map[string]interface{}),
+	document, err := cg.OpenAPI()
+	if err != nil {
+		panic(err)
 	}
-	
-	paths := spec["paths"].(map[string]interface{})
-	
-	for _, route := range cg.routes {
-		if paths[route.Path] == nil {
-			paths[route.Path] = make(map[string]interface{})
-		}
-		
-		pathItem := paths[route.Path].(map[string]interface{})
-		pathItem[strings.ToLower(route.Method)] = map[string]interface{}{
-			"summary": fmt.Sprintf("%s %s", route.Method, route.Path),
-			"responses": map[string]interface{}{
-				"200": map[string]interface{}{
-					"description": "Success",
-				},
-			},
-		}
-	}
-	
-	return spec
+	return document
 }
 
-func (cg *CodeGenerator) GenerateTypeScriptTypes() string {
-	var code strings.Builder
-	
-	code.WriteString("// Generated TypeScript types\n\n")
-	
-	for name, schema := range cg.schemas {
-		code.WriteString(fmt.Sprintf("export interface %s {\n", name))
-		
-		// This is a simplified version
-		// In a real implementation, you'd need to convert Go schemas to TypeScript
-		switch s := schema.(type) {
-		case *ObjectSchema:
-			for fieldName := range s.fields {
-				code.WriteString(fmt.Sprintf("  %s: any;\n", fieldName))
-			}
+func (cg *CodeGenerator) OpenAPIHandler() Handler {
+	return func(c *Context) error {
+		document, err := cg.OpenAPI()
+		if err != nil {
+			return err
 		}
-		
-		code.WriteString("}\n\n")
+		return c.JSON(http.StatusOK, document)
 	}
-	
-	return code.String()
 }
 
 func GenerateHandlerTemplate(method, path, handlerName string) string {
@@ -200,18 +292,18 @@ func GenerateHandlerTemplate(method, path, handlerName string) string {
 
 func GenerateModelTemplate(modelName string, fields map[string]string) string {
 	var code strings.Builder
-	
+
 	code.WriteString(fmt.Sprintf("type %s struct {\n", modelName))
-	
+
 	for fieldName, fieldType := range fields {
-		code.WriteString(fmt.Sprintf("    %s %s `json:\"%s\"`\n", 
-			fieldName, 
-			fieldType, 
+		code.WriteString(fmt.Sprintf("    %s %s `json:\"%s\"`\n",
+			fieldName,
+			fieldType,
 			strings.ToLower(fieldName)))
 	}
-	
+
 	code.WriteString("}\n")
-	
+
 	return code.String()
 }
 
@@ -230,10 +322,10 @@ func GenerateTestTemplate(handlerName, method, path string) string {
 	}
 }`
 
-	return fmt.Sprintf(template, 
-		handlerName, 
-		strings.ToUpper(method), 
-		path, 
+	return fmt.Sprintf(template,
+		handlerName,
+		strings.ToUpper(method),
+		path,
 		handlerName,
 		strings.ToUpper(method),
 		path)

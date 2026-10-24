@@ -287,7 +287,7 @@ func printNextSteps(projectName string, config generators.ProjectConfig) {
 	fmt.Printf("Your API will be available at: http://localhost:8080\n")
 
 	if config.UseSwagger {
-		fmt.Printf("API docs: http://localhost:8080/docs\n")
+		fmt.Printf("OpenAPI: http://localhost:8080/openapi.json\nTypeScript: http://localhost:8080/contracts.ts\n")
 	}
 
 	fmt.Printf("\nUseful commands:\n")
