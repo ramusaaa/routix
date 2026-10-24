@@ -35,10 +35,12 @@ package routix
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
+	"math"
+	"net"
 	"net/http"
-	"net/http/httptest"
+	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -73,70 +75,22 @@ func Logger() Middleware {
 // ErrorHandler is a middleware that handles errors in a consistent way
 func ErrorHandler() Middleware {
 	return func(next Handler) Handler {
-		return func(c *Context) error {
-			// Call the next handler
-			err := next(c)
-			if err == nil {
-				return nil
-			}
-
-			// Handle the error
-			var routixErr *Error
-			if e, ok := err.(*Error); ok {
-				routixErr = e
-			} else {
-				routixErr = InternalServerError("Internal Server Error", err)
-			}
-
-			// Convert error to response
-			resp := routixErr.ToResponse()
-
-			// Set content type
-			c.Response.Header().Set("Content-Type", "application/json")
-			c.Response.WriteHeader(routixErr.Code)
-
-			// Encode and send response
-			return json.NewEncoder(c.Response).Encode(resp)
-		}
+		return func(c *Context) error { writeHandlerError(c, next(c)); return nil }
 	}
 }
 
-// Recovery is a middleware that recovers from panics
 func Recovery() Middleware {
 	return func(next Handler) Handler {
-		return func(c *Context) error {
+		return func(c *Context) (err error) {
 			defer func() {
-				if r := recover(); r != nil {
-					var err error
-					switch x := r.(type) {
-					case string:
-						err = InternalServerError("Internal Server Error", fmt.Errorf("%s", x))
-					case error:
-						err = InternalServerError("Internal Server Error", x)
-					default:
-						err = InternalServerError("Internal Server Error", fmt.Errorf("unknown panic"))
+				if recovered := recover(); recovered != nil {
+					if recovered == http.ErrAbortHandler {
+						panic(recovered)
 					}
-
-					// Handle the error
-					var routixErr *Error
-					if e, ok := err.(*Error); ok {
-						routixErr = e
-					} else {
-						routixErr = InternalServerError("Internal Server Error", err)
-					}
-
-					// Convert error to response
-					resp := routixErr.ToResponse()
-
-					// Set content type
-					c.Response.Header().Set("Content-Type", "application/json")
-					c.Response.WriteHeader(routixErr.Code)
-
-					// Encode and send response
-					json.NewEncoder(c.Response).Encode(resp)
+					writeHandlerError(c, InternalServerError("Internal Server Error", nil))
+					err = nil
 				}
 			}()
-
 			return next(c)
 		}
 	}
@@ -148,7 +102,7 @@ func CORS() Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) error {
 			c.Response.Header().Set("Access-Control-Allow-Origin", "*")
-			c.Response.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Response.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
 			c.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 			// Handle preflight requests
@@ -167,16 +121,11 @@ func CORS() Middleware {
 func Auth(validateToken func(string) bool) Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			header := c.Request.Header.Get("Authorization")
-			if header == "" {
-				return c.Error(fmt.Errorf("unauthorized"), "Authentication required")
+			parts := strings.Fields(c.GetHeader("Authorization"))
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || validateToken == nil || !validateToken(parts[1]) {
+				c.SetHeader("WWW-Authenticate", "Bearer")
+				return c.Unauthorized("Invalid authentication token")
 			}
-
-			token := strings.TrimPrefix(header, "Bearer ")
-			if !validateToken(token) {
-				return c.Error(fmt.Errorf("invalid token"), "Invalid authentication token")
-			}
-
 			return next(c)
 		}
 	}
@@ -185,40 +134,49 @@ func Auth(validateToken func(string) bool) Middleware {
 // RateLimit returns a middleware that implements rate limiting.
 // It limits the number of requests from a single IP address.
 func RateLimit(requests int, duration time.Duration) Middleware {
-	type entry struct {
-		timestamps []time.Time
+	if requests <= 0 || duration <= 0 {
+		panic("routix: rate limit and duration must be positive")
 	}
+	type entry struct{ timestamps []time.Time }
 	var mu sync.Mutex
 	limiter := make(map[string]*entry)
-
+	nextCleanup := time.Now().Add(duration)
 	return func(next Handler) Handler {
 		return func(c *Context) error {
 			ip := c.Request.RemoteAddr
-
+			if host, _, err := net.SplitHostPort(ip); err == nil {
+				ip = host
+			}
+			now := time.Now()
 			mu.Lock()
-			e, ok := limiter[ip]
-			if !ok {
+			if !now.Before(nextCleanup) {
+				for key, e := range limiter {
+					if len(e.timestamps) == 0 || now.Sub(e.timestamps[len(e.timestamps)-1]) >= duration {
+						delete(limiter, key)
+					}
+				}
+				nextCleanup = now.Add(duration)
+			}
+			e := limiter[ip]
+			if e == nil {
 				e = &entry{}
 				limiter[ip] = e
 			}
-
-			now := time.Now()
 			valid := e.timestamps[:0]
-			for _, t := range e.timestamps {
-				if now.Sub(t) < duration {
-					valid = append(valid, t)
+			for _, timestamp := range e.timestamps {
+				if now.Sub(timestamp) < duration {
+					valid = append(valid, timestamp)
 				}
 			}
 			e.timestamps = valid
-
-			if len(e.timestamps) >= requests {
+			if len(valid) >= requests {
+				retry := int(math.Ceil(duration.Seconds() - now.Sub(valid[0]).Seconds()))
 				mu.Unlock()
-				return c.Error(fmt.Errorf("rate limit exceeded"), "Too many requests")
+				c.SetHeader("Retry-After", strconv.Itoa(retry))
+				return c.JSON(http.StatusTooManyRequests, map[string]any{"status": "error", "message": "Too many requests"})
 			}
-
 			e.timestamps = append(e.timestamps, now)
 			mu.Unlock()
-
 			return next(c)
 		}
 	}
@@ -227,40 +185,64 @@ func RateLimit(requests int, duration time.Duration) Middleware {
 // Timeout returns a middleware that adds a timeout to request processing.
 // It cancels the request if it takes longer than the specified duration.
 func Timeout(timeout time.Duration) Middleware {
+	if timeout <= 0 {
+		panic("routix: timeout must be positive")
+	}
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			// Create a channel for the response
-			done := make(chan error, 1)
-
-			// Process request in a goroutine
-			go func() {
-				done <- next(c)
-			}()
-
-			// Wait for response or timeout
+			local := *c
+			local.Params = cloneMap(c.Params)
+			local.Query = cloneMap(c.Query)
+			local.Body = cloneMap(c.Body)
+			local.values = cloneMap(c.values)
+			completed := make(chan struct{}, 1)
+			handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				local.Request = req
+				local.Writer = &responseWriter{ResponseWriter: w}
+				local.Response = local.Writer
+				writeHandlerError(&local, next(&local))
+				completed <- struct{}{}
+			})
+			c.SetHeader("Content-Type", "application/json; charset=utf-8")
+			http.TimeoutHandler(handler, timeout, `{"status":"error","message":"Request timed out"}`).ServeHTTP(c.Response, c.Request.Clone(c.Request.Context()))
 			select {
-			case err := <-done:
-				return err
-			case <-time.After(timeout):
-				return c.Error(fmt.Errorf("request timeout"), "Request timed out")
+			case <-completed:
+				c.values = local.values
+			default:
 			}
+			return nil
 		}
 	}
 }
 
+func cloneMap[K comparable, V any](m map[K]V) map[K]V {
+	if m == nil {
+		return nil
+	}
+	out := make(map[K]V, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 // Validate validates the request body or query parameters against a struct
 func Validate(v interface{}) Middleware {
+	typ := reflect.TypeOf(v)
+	if typ == nil || typ.Kind() != reflect.Ptr || typ.Elem().Kind() != reflect.Struct {
+		panic("routix: validation requires a pointer to a struct")
+	}
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			if err := c.ParseJSON(v); err != nil {
-				return c.Error(err, "Validation failed")
+			value := reflect.New(typ.Elem()).Interface()
+			if err := c.ParseJSON(value); err != nil {
+				return c.BadRequest("Validation failed")
 			}
-
 			validator := NewValidator()
-			if !validator.Validate(v) {
-				return c.Error(fmt.Errorf("validation failed: %v", validator.Errors()), "Validation failed")
+			if !validator.Validate(value) {
+				return c.BadRequest(fmt.Sprintf("validation failed: %v", validator.Errors()))
 			}
-
+			c.Set("validated", value)
 			return next(c)
 		}
 	}
@@ -268,130 +250,219 @@ func Validate(v interface{}) Middleware {
 
 // Cache caches responses for a specified duration
 func Cache(duration time.Duration) Middleware {
-	cache := make(map[string]struct {
-		response []byte
-		headers  http.Header
-		code     int
-		expires  time.Time
-	})
-	var mu sync.RWMutex
-
+	type cachedResponse struct {
+		body    []byte
+		headers http.Header
+		code    int
+		expires time.Time
+	}
+	cache := make(map[string]cachedResponse)
+	var nextCleanup time.Time
+	var mu sync.Mutex
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			// Only cache GET requests
-			if c.Request.Method != http.MethodGet {
+			if duration <= 0 || c.Request.Method != http.MethodGet || c.GetHeader("Authorization") != "" || c.GetHeader("Cookie") != "" || c.GetHeader("Range") != "" || c.GetHeader("Cache-Control") != "" || c.GetHeader("If-None-Match") != "" || c.GetHeader("If-Modified-Since") != "" {
 				return next(c)
 			}
-
-			key := c.Request.URL.String()
-
-			// Check cache
-			mu.RLock()
-			if cached, ok := cache[key]; ok && time.Now().Before(cached.expires) {
-				mu.RUnlock()
-				// Write cached response
-				for k, v := range cached.headers {
-					c.Response.Header()[k] = v
-				}
-				c.Response.WriteHeader(cached.code)
-				c.Response.Write(cached.response)
-				return nil
-			}
-			mu.RUnlock()
-
-			// Capture response so we can store it in cache.
-			recorder := httptest.NewRecorder()
-			rw := &responseWriter{ResponseWriter: recorder}
-			newCtx := &Context{
-				Request:  c.Request,
-				Writer:   rw,
-				Response: rw,
-				Params:   c.Params,
-				Query:    c.Query,
-				Body:     c.Body,
-			}
-
-			if err := next(newCtx); err != nil {
-				return err
-			}
-
+			key := c.Request.Host + "\n" + c.Request.URL.RequestURI() + "\n" + c.GetHeader("Accept-Encoding") + "\n" + c.GetHeader("Origin")
 			mu.Lock()
-			cache[key] = struct {
-				response []byte
-				headers  http.Header
-				code     int
-				expires  time.Time
-			}{
-				response: recorder.Body.Bytes(),
-				headers:  recorder.Header(),
-				code:     recorder.Code,
-				expires:  time.Now().Add(duration),
+			now := time.Now()
+			if !now.Before(nextCleanup) {
+				for key, item := range cache {
+					if !now.Before(item.expires) {
+						delete(cache, key)
+					}
+				}
+				nextCleanup = now.Add(duration)
+			}
+			item, ok := cache[key]
+			if ok && !now.Before(item.expires) {
+				delete(cache, key)
+				ok = false
 			}
 			mu.Unlock()
-
-			for k, v := range recorder.Header() {
-				c.Response.Header()[k] = v
+			if ok {
+				for k, v := range item.headers {
+					c.Response.Header()[k] = append([]string(nil), v...)
+				}
+				c.Response.WriteHeader(item.code)
+				_, err := c.Response.Write(item.body)
+				return err
 			}
-			c.Response.WriteHeader(recorder.Code)
-			c.Response.Write(recorder.Body.Bytes())
-
-			return nil
+			originalWriter, originalResponse := c.Writer, c.Response
+			capture := &cacheWriter{ResponseWriter: originalResponse}
+			c.Writer = &responseWriter{ResponseWriter: capture}
+			c.Response = c.Writer
+			defer func() { c.Writer = originalWriter; c.Response = originalResponse }()
+			err := next(c)
+			ttl := cacheTTL(capture.Header().Get("Cache-Control"), duration)
+			if err == nil && c.Status() == http.StatusOK && !capture.tooLarge && !capture.flushed && len(capture.Header().Values("Set-Cookie")) == 0 && capture.Header().Get("Vary") == "" && capture.Header().Get("Expires") == "" && ttl > 0 {
+				item = cachedResponse{body: bytes.Clone(capture.body.Bytes()), headers: capture.Header().Clone(), code: c.Status(), expires: time.Now().Add(ttl)}
+				mu.Lock()
+				if len(cache) >= 1024 {
+					for old := range cache {
+						delete(cache, old)
+						break
+					}
+				}
+				cache[key] = item
+				mu.Unlock()
+			}
+			return err
 		}
 	}
 }
 
-// Compress compresses responses using gzip
+func cacheTTL(control string, duration time.Duration) time.Duration {
+	for _, directive := range strings.Split(strings.ToLower(control), ",") {
+		name, value, hasValue := strings.Cut(strings.TrimSpace(directive), "=")
+		switch strings.TrimSpace(name) {
+		case "private", "no-store", "no-cache":
+			return 0
+		case "max-age", "s-maxage":
+			seconds, err := strconv.ParseInt(strings.Trim(strings.TrimSpace(value), "\""), 10, 64)
+			if !hasValue || err != nil || seconds <= 0 {
+				return 0
+			}
+			if seconds <= int64(duration/time.Second) {
+				duration = time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	return duration
+}
+
+type cacheWriter struct {
+	http.ResponseWriter
+	body     bytes.Buffer
+	tooLarge bool
+	flushed  bool
+}
+
+func (w *cacheWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *cacheWriter) Write(b []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(b)
+	if !w.tooLarge {
+		if w.body.Len()+n > 1<<20 {
+			w.tooLarge = true
+			w.body.Reset()
+		} else {
+			_, _ = w.body.Write(b[:n])
+		}
+	}
+	return n, err
+}
+func (w *cacheWriter) Flush() {
+	w.flushed = true
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
+}
+
 func Compress() Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			// Check if client accepts gzip
-			if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
+			addVary(c.Response.Header(), "Accept-Encoding")
+			if c.Request.Method == http.MethodHead || c.GetHeader("Range") != "" || !acceptsGzip(c.GetHeader("Accept-Encoding")) {
 				return next(c)
 			}
-
-			recorder := httptest.NewRecorder()
-			rw := &responseWriter{ResponseWriter: recorder}
-			newCtx := &Context{
-				Request:  c.Request,
-				Writer:   rw,
-				Response: rw,
-				Params:   c.Params,
-				Query:    c.Query,
-				Body:     c.Body,
-			}
-
-			if err := next(newCtx); err != nil {
-				return err
-			}
-
-			// Copy headers, excluding Content-Length since it changes after compression.
-			for k, v := range recorder.Header() {
-				if k != "Content-Length" {
-					c.Response.Header()[k] = v
+			originalWriter, originalResponse := c.Writer, c.Response
+			writer := &gzipResponseWriter{ResponseWriter: originalResponse}
+			c.Writer = &responseWriter{ResponseWriter: writer}
+			c.Response = c.Writer
+			defer func() { c.Writer = originalWriter; c.Response = originalResponse }()
+			err := next(c)
+			if writer.gzip != nil {
+				if closeErr := writer.gzip.Close(); err == nil {
+					err = closeErr
 				}
 			}
-
-			// Actually compress the response with gzip
-			var buf bytes.Buffer
-			gz := gzip.NewWriter(&buf)
-			_, err := gz.Write(recorder.Body.Bytes())
-			if err != nil {
-				// If compression fails, write uncompressed
-				c.Response.WriteHeader(recorder.Code)
-				c.Response.Write(recorder.Body.Bytes())
-				return nil
-			}
-			gz.Close()
-
-			// Set gzip headers
-			c.SetHeader("Content-Encoding", "gzip")
-			c.SetHeader("Vary", "Accept-Encoding")
-
-			// Write status code and compressed body
-			c.Response.WriteHeader(recorder.Code)
-			c.Response.Write(buf.Bytes())
-
-			return nil
+			return err
 		}
 	}
+}
+
+func addVary(header http.Header, value string) {
+	for _, line := range header.Values("Vary") {
+		for _, part := range strings.Split(line, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), value) || strings.TrimSpace(part) == "*" {
+				return
+			}
+		}
+	}
+	if current := header.Get("Vary"); current != "" {
+		header.Set("Vary", strings.Join(header.Values("Vary"), ", ")+", "+value)
+	} else {
+		header.Set("Vary", value)
+	}
+}
+
+func acceptsGzip(header string) bool {
+	wildcard := false
+	for _, entry := range strings.Split(header, ",") {
+		parts := strings.Split(entry, ";")
+		coding := strings.TrimSpace(parts[0])
+		quality := 1.0
+		for _, part := range parts[1:] {
+			name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+			if ok && strings.EqualFold(name, "q") {
+				q, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+				if err != nil || q < 0 || q > 1 || math.IsNaN(q) {
+					quality = 0
+				} else {
+					quality = q
+				}
+			}
+		}
+		if strings.EqualFold(coding, "gzip") {
+			return quality > 0
+		}
+		if coding == "*" {
+			wildcard = quality > 0
+		}
+	}
+	return wildcard
+}
+
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gzip    *gzip.Writer
+	written bool
+}
+
+func (w *gzipResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *gzipResponseWriter) WriteHeader(code int) {
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(code)
+		return
+	}
+	if w.written {
+		return
+	}
+	w.written = true
+	if code >= 200 && code != http.StatusNoContent && code != http.StatusNotModified && code != http.StatusResetContent && code != http.StatusPartialContent && w.Header().Get("Content-Encoding") == "" && !strings.Contains(strings.ToLower(w.Header().Get("Cache-Control")), "no-transform") && !strings.HasPrefix(w.Header().Get("Content-Type"), "text/event-stream") {
+		w.Header().Del("Content-Length")
+		w.Header().Set("Content-Encoding", "gzip")
+		w.gzip = gzip.NewWriter(w.ResponseWriter)
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+func (w *gzipResponseWriter) Write(b []byte) (int, error) {
+	if !w.written {
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", http.DetectContentType(b))
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.gzip != nil {
+		return w.gzip.Write(b)
+	}
+	return w.ResponseWriter.Write(b)
+}
+func (w *gzipResponseWriter) Flush() {
+	if !w.written {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.gzip != nil {
+		_ = w.gzip.Flush()
+	}
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }

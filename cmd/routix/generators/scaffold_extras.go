@@ -24,8 +24,7 @@ func GenerateSwaggerFiles(projectName string, config ProjectConfig) {
 // @in header
 // @name Authorization
 // @description Type "Bearer" followed by a space and JWT token.
-
-package main`
+`
 
 	writeFile(filepath.Join(projectName, "docs", "swagger.go"), swaggerContent)
 }

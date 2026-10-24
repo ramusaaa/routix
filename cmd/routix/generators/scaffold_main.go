@@ -10,7 +10,11 @@ func GenerateMain(projectName string, config ProjectConfig) {
 
 	switch config.Template {
 	case "minimal":
-		content = generateMinimalMain(config)
+		if config.UseDatabase || config.UseAuth {
+			content = generateAPIMain(config)
+		} else {
+			content = generateMinimalMain(config)
+		}
 	case "fullstack":
 		content = generateFullstackMain(config)
 	case "microservice":
@@ -130,11 +134,7 @@ func main() {
 
 	app.Static("/static", "./public")
 
-	routes.RegisterWeb(app`
-	if config.UseDatabase {
-		content += `, db`
-	}
-	content += `)
+	routes.RegisterWeb(app)
 	routes.RegisterAPI(app`
 	if config.UseDatabase {
 		content += `, db`

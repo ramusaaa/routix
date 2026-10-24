@@ -19,7 +19,10 @@ func main() {
 
 	switch {
 	case command == "new" || command == "create":
-		commands.NewProject(args)
+		if err := commands.NewProject(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case command == "make" || strings.HasPrefix(command, "make:"):
 		if strings.HasPrefix(command, "make:") {
 			// Handle make:controller, make:model, etc.
@@ -34,9 +37,15 @@ func main() {
 	case command == "build":
 		commands.BuildCommand(args)
 	case command == "migrate":
-		commands.MigrateCommand(args)
+		if err := commands.MigrateCommand(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case command == "seed":
-		commands.SeedCommand(args)
+		if err := commands.SeedCommand(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case command == "route":
 		commands.RouteCommand(args)
 	case command == "test":

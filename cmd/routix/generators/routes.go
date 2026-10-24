@@ -18,6 +18,10 @@ func generateAPIRoutes(projectName string, config ProjectConfig) {
 import (
 	"github.com/ramusaaa/routix"
 	"` + projectName + `/app/controllers"`
+	if config.UseAuth {
+		content += `
+ "` + projectName + `/app/middleware"`
+	}
 
 	if config.UseDatabase {
 		content += `
@@ -39,7 +43,7 @@ func RegisterAPI(app *routix.APIBuilder`
 
 	if config.UseAuth {
 		content += `
-	authController := controllers.NewAuthController()`
+	authController := controllers.NewAuthController(db)`
 	}
 
 	content += `
@@ -51,14 +55,13 @@ func RegisterAPI(app *routix.APIBuilder`
 	if config.UseAuth {
 		content += `
 
-	// Auth routes
-	app.POST("/auth/register", authController.Register)
-	app.POST("/auth/login", authController.Login)
-	app.POST("/auth/refresh", authController.RefreshToken)
-	
-	// Protected auth routes (add middleware later)
-	app.POST("/auth/logout", authController.Logout)
-	app.GET("/auth/me", authController.Me)`
+app.POST("/auth/register", authController.Register)
+ app.POST("/auth/login", authController.Login)
+ protected:=app.GroupRouter("/auth")
+ protected.Use(middleware.Auth(db))
+ protected.POST("/refresh",authController.RefreshToken)
+ protected.POST("/logout",authController.Logout)
+ protected.GET("/me",authController.Me)`
 	}
 
 	content += `

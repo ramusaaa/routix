@@ -1,12 +1,16 @@
 package routix
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +25,10 @@ type responseWriter struct {
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		rw.ResponseWriter.WriteHeader(code)
+		return
+	}
 	if !rw.written {
 		rw.status = code
 		rw.written = true
@@ -36,6 +44,19 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return rw.ResponseWriter.Write(b)
 }
 
+func (rw *responseWriter) Unwrap() http.ResponseWriter { return rw.ResponseWriter }
+
+func (rw *responseWriter) Flush() {
+	if !rw.written {
+		rw.WriteHeader(http.StatusOK)
+	}
+	_ = http.NewResponseController(rw.ResponseWriter).Flush()
+}
+
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return http.NewResponseController(rw.ResponseWriter).Hijack()
+}
+
 func (rw *responseWriter) Status() int {
 	if rw.status == 0 {
 		return http.StatusOK
@@ -45,13 +66,18 @@ func (rw *responseWriter) Status() int {
 
 // Context holds request/response state for a single HTTP request.
 type Context struct {
-	Request  *http.Request
-	Writer   *responseWriter
-	Response http.ResponseWriter // kept for backward compat; points to Writer
-	Params   map[string]string
-	Query    map[string]string
-	Body     map[string]any
-	values   map[string]any
+	Request   *http.Request
+	Writer    *responseWriter
+	Response  http.ResponseWriter // kept for backward compat; points to Writer
+	Params    map[string]string
+	Query     map[string]string
+	Body      map[string]any
+	values    map[string]any
+	rawBody   []byte
+	bodyRead  bool
+	bodyErr   error
+	bodyLimit int64
+	handler   Handler
 }
 
 // Set stores a value in the context, scoped to this request.
@@ -94,6 +120,11 @@ func getContextFromPool(req *http.Request, w *responseWriter, params, query map[
 	ctx.Query = query
 	ctx.Body = body
 	ctx.values = nil
+	ctx.rawBody = nil
+	ctx.bodyRead = false
+	ctx.bodyErr = nil
+	ctx.bodyLimit = 1 << 20
+	ctx.handler = nil
 	return ctx
 }
 
@@ -105,6 +136,11 @@ func putContextToPool(ctx *Context) {
 	ctx.Query = nil
 	ctx.Body = nil
 	ctx.values = nil
+	ctx.rawBody = nil
+	ctx.bodyRead = false
+	ctx.bodyErr = nil
+	ctx.bodyLimit = 1 << 20
+	ctx.handler = nil
 	putContext(ctx)
 }
 
@@ -119,23 +155,25 @@ type RouteInfo struct {
 
 // Router is the core HTTP router.
 type Router struct {
-	trees      map[string]*node
-	routes     []RouteInfo
-	params     *sync.Pool
-	notFound   Handler
-	notMethod  Handler
-	middleware []Middleware
-	cache      sync.Map
-	devMode    bool
-	mu         sync.RWMutex
+	trees        map[string]*node
+	routes       []RouteInfo
+	params       *sync.Pool
+	notFound     Handler
+	notMethod    Handler
+	middleware   []Middleware
+	cache        sync.Map
+	devMode      bool
+	MaxBodyBytes int64
+	mu           sync.RWMutex
 }
 
 type node struct {
-	path     string
-	handler  Handler
-	children map[string]*node
-	params   []string
-	wildcard bool
+	path       string
+	handler    Handler
+	children   map[string]*node
+	params     []string
+	wildcard   bool
+	paramNames []string
 }
 
 // Middleware wraps a Handler with additional logic.
@@ -168,12 +206,15 @@ func New() *Router {
 			})
 			return nil
 		},
-		devMode: false,
+		devMode:      false,
+		MaxBodyBytes: 1 << 20,
 	}
 }
 
 // Use appends global middleware to the router.
 func (r *Router) Use(middleware ...Middleware) *Router {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.middleware = append(r.middleware, middleware...)
 	return r
 }
@@ -195,13 +236,41 @@ func (r *Router) Routes() []RouteInfo {
 
 // Handle registers a handler for the given method and path.
 func (r *Router) Handle(method, path string, handler Handler) {
+	if handler == nil {
+		panic("routix: handler must not be nil")
+	}
 	if len(path) == 0 || path[0] != '/' {
 		path = "/" + path
 	}
 
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	names := make([]string, 0)
+	seen := make(map[string]bool)
+	for i, part := range parts {
+		if part == "*" && i != len(parts)-1 {
+			panic("routix: wildcard must be the final path segment")
+		}
+		name := ""
+		if strings.HasPrefix(part, ":") {
+			name = part[1:]
+			if name == "" {
+				panic("routix: parameter name must not be empty")
+			}
+		}
+		if part == "*" {
+			name = "*"
+		}
+		if name != "" {
+			if seen[name] {
+				panic("routix: duplicate parameter name")
+			}
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.routes = append(r.routes, RouteInfo{Method: method, Path: path})
-	r.mu.Unlock()
 
 	if _, ok := r.trees[method]; !ok {
 		r.trees[method] = &node{children: make(map[string]*node)}
@@ -214,8 +283,7 @@ func (r *Router) Handle(method, path string, handler Handler) {
 		return
 	}
 
-	parts := strings.Split(path[1:], "/")
-	for i, part := range parts {
+	for _, part := range parts {
 		if part == "" {
 			continue
 		}
@@ -250,10 +318,9 @@ func (r *Router) Handle(method, path string, handler Handler) {
 			root = root.children[part]
 		}
 
-		if i == len(parts)-1 {
-			root.handler = handler
-		}
 	}
+	root.handler = handler
+	root.paramNames = names
 }
 
 func (r *Router) GET(path string, handler Handler)     { r.Handle(http.MethodGet, path, handler) }
@@ -264,66 +331,71 @@ func (r *Router) PATCH(path string, handler Handler)   { r.Handle(http.MethodPat
 func (r *Router) HEAD(path string, handler Handler)    { r.Handle(http.MethodHead, path, handler) }
 func (r *Router) OPTIONS(path string, handler Handler) { r.Handle(http.MethodOptions, path, handler) }
 
-func (r *Router) NotFound(handler Handler)        { r.notFound = handler }
-func (r *Router) MethodNotAllowed(handler Handler) { r.notMethod = handler }
+func (r *Router) NotFound(handler Handler) { r.mu.Lock(); defer r.mu.Unlock(); r.notFound = handler }
+func (r *Router) MethodNotAllowed(handler Handler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.notMethod = handler
+}
+
+type routerCachedResponse struct {
+	response []byte
+	headers  http.Header
+	code     int
+	expires  time.Time
+}
 
 func (r *Router) CacheResponse(key string, response []byte, headers http.Header, code int, duration time.Duration) {
-	r.cache.Store(key, struct {
-		response []byte
-		headers  http.Header
-		code     int
-		expires  time.Time
-	}{response, headers, code, time.Now().Add(duration)})
+	if duration <= 0 {
+		r.cache.Delete(key)
+		return
+	}
+	if len(response) > 1<<20 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := 0
+	var oldest any
+	now := time.Now()
+	r.cache.Range(func(k, value any) bool {
+		if !now.Before(value.(*routerCachedResponse).expires) {
+			r.cache.Delete(k)
+		} else {
+			count++
+			oldest = k
+		}
+		return true
+	})
+	if count >= 1024 {
+		r.cache.Delete(oldest)
+	}
+	r.cache.Store(key, &routerCachedResponse{response: append([]byte(nil), response...), headers: headers.Clone(), code: code, expires: now.Add(duration)})
 }
 
 func (r *Router) GetCachedResponse(key string) ([]byte, http.Header, int, bool) {
 	if value, ok := r.cache.Load(key); ok {
-		cached := value.(struct {
-			response []byte
-			headers  http.Header
-			code     int
-			expires  time.Time
-		})
+		cached := value.(*routerCachedResponse)
 		if time.Now().Before(cached.expires) {
-			return cached.response, cached.headers, cached.code, true
+			return append([]byte(nil), cached.response...), cached.headers.Clone(), cached.code, true
 		}
-		r.cache.Delete(key)
+		r.cache.CompareAndDelete(key, value)
 	}
 	return nil, nil, 0, false
 }
 
+type headResponseWriter struct{ http.ResponseWriter }
+
+func (w headResponseWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (w headResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	path := req.URL.Path
-	method := req.Method
-
-	// Serve cached GET responses without hitting the handler chain.
-	if method == http.MethodGet {
-		if response, headers, code, ok := r.GetCachedResponse(path); ok {
-			for k, v := range headers {
-				w.Header()[k] = v
-			}
-			w.WriteHeader(code)
-			w.Write(response)
-			return
-		}
+	if req.Method == http.MethodHead {
+		w = headResponseWriter{w}
 	}
-
 	rw := &responseWriter{ResponseWriter: w}
-
-	root, ok := r.trees[method]
-	if !ok {
-		r.notMethod(getContextFromPool(req, rw, nil, nil, nil))
-		return
-	}
-
 	params := r.params.Get().(map[string]string)
-	defer func() {
-		for k := range params {
-			delete(params, k)
-		}
-		r.params.Put(params)
-	}()
-
+	defer func() { clear(params); r.params.Put(params) }()
 	var query map[string]string
 	if req.URL.RawQuery != "" {
 		query = make(map[string]string)
@@ -333,90 +405,122 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
-
-	// Parse JSON body when content-type is application/json.
-	// ContentLength == -1 means chunked; still attempt decode.
-	var body map[string]any
-	ct := req.Header.Get("Content-Type")
-	if strings.HasPrefix(ct, "application/json") && req.Body != nil {
-		json.NewDecoder(req.Body).Decode(&body) //nolint:errcheck
-	}
-
-	ctx := getContextFromPool(req, rw, params, query, body)
+	ctx := getContextFromPool(req, rw, params, query, nil)
 	defer putContextToPool(ctx)
 
-	handler, found := r.findHandler(root, path, params)
+	r.mu.RLock()
+	handler, found := r.findHandler(r.trees[req.Method], req.URL.Path, params)
+	if !found && req.Method == http.MethodHead {
+		handler, found = r.findHandler(r.trees[http.MethodGet], req.URL.Path, params)
+	}
 	if !found {
-		r.notFound(ctx)
-		return
-	}
-
-	h := handler
-	for i := len(r.middleware) - 1; i >= 0; i-- {
-		h = r.middleware[i](h)
-	}
-
-	if err := h(ctx); err != nil {
-		if routixErr, ok := err.(*Error); ok {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(routixErr.Code)
-			json.NewEncoder(w).Encode(routixErr.ToResponse())
-		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		allowed := make(map[string]bool)
+		for method, root := range r.trees {
+			if _, ok := r.findHandler(root, req.URL.Path, make(map[string]string)); ok {
+				allowed[method] = true
+			}
 		}
+		if allowed[http.MethodGet] {
+			allowed[http.MethodHead] = true
+		}
+		handler = r.notFound
+		if len(allowed) > 0 {
+			methods := make([]string, 0, len(allowed))
+			for method := range allowed {
+				methods = append(methods, method)
+			}
+			sort.Strings(methods)
+			ctx.SetHeader("Allow", strings.Join(methods, ", "))
+			handler = r.notMethod
+		}
+	}
+	middleware := append([]Middleware(nil), r.middleware...)
+	maxBody := r.MaxBodyBytes
+	ctx.bodyLimit = maxBody
+	r.mu.RUnlock()
+
+	if found && ctx.IsJSON() && req.Body != nil && req.Body != http.NoBody {
+		_ = ctx.readJSONBody(maxBody)
+	}
+	ctx.handler = handler
+	handler = executeHandler
+	for i := len(middleware) - 1; i >= 0; i-- {
+		handler = middleware[i](handler)
+	}
+	if err := handler(ctx); err != nil {
+		writeHandlerError(ctx, err)
 	}
 }
 
-func (r *Router) findHandler(root *node, path string, params map[string]string) (Handler, bool) {
-	if path == "/" {
-		if root.handler != nil {
-			return root.handler, true
+func executeHandler(c *Context) error {
+	if c.bodyErr != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(c.bodyErr, &tooLarge) {
+			return c.JSON(http.StatusRequestEntityTooLarge, map[string]any{"message": "request body too large"})
 		}
+		return c.BadRequest("invalid JSON body")
+	}
+	err := c.handler(c)
+	writeHandlerError(c, err)
+	return err
+}
+
+func writeHandlerError(c *Context, err error) {
+	if err == nil || c.Writer.written {
+		return
+	}
+	var re *Error
+	if errors.As(err, &re) {
+		response := ErrorResponse{Code: re.Code, Message: re.Message}
+		_ = c.JSON(re.Code, response)
+		return
+	}
+	_ = c.JSON(http.StatusInternalServerError, ErrorResponse{Code: http.StatusInternalServerError, Message: "Internal Server Error"})
+}
+
+func (r *Router) findHandler(root *node, path string, params map[string]string) (Handler, bool) {
+	if root == nil {
 		return nil, false
 	}
-
-	pathLen := len(path)
-	current := root
-	start := 1
-
-	for start < pathLen {
+	var match func(*node, int, int) *node
+	match = func(current *node, start, paramIndex int) *node {
+		for start < len(path) && path[start] == '/' {
+			start++
+		}
+		if start == len(path) {
+			if current.handler != nil {
+				return current
+			}
+			if child := current.children["*"]; child != nil && child.handler != nil {
+				params[child.paramNames[paramIndex]] = ""
+				return child
+			}
+			return nil
+		}
 		end := start
-		for end < pathLen && path[end] != '/' {
+		for end < len(path) && path[end] != '/' {
 			end++
 		}
-		if start == end {
-			start++
-			continue
-		}
-
 		part := path[start:end]
-
-		if child, ok := current.children[part]; ok {
-			current = child
-			start = end + 1
-			continue
-		}
-
-		if child, ok := current.children[":"]; ok {
-			if len(child.params) > 0 {
-				params[child.params[0]] = part
+		if child := current.children[part]; child != nil && part != ":" && part != "*" {
+			if leaf := match(child, end, paramIndex); leaf != nil {
+				return leaf
 			}
-			current = child
-			start = end + 1
-			continue
 		}
-
-		if child, ok := current.children["*"]; ok {
-			params["*"] = path[start:]
-			current = child
-			break
+		if child := current.children[":"]; child != nil {
+			if leaf := match(child, end, paramIndex+1); leaf != nil {
+				params[leaf.paramNames[paramIndex]] = part
+				return leaf
+			}
 		}
-
-		return nil, false
+		if child := current.children["*"]; child != nil && child.handler != nil {
+			params[child.paramNames[paramIndex]] = path[start:]
+			return child
+		}
+		return nil
 	}
-
-	if current.handler != nil {
-		return current.handler, true
+	if leaf := match(root, 0, 0); leaf != nil {
+		return leaf.handler, true
 	}
 	return nil, false
 }
@@ -470,10 +574,10 @@ func (g *Group) OPTIONS(path string, handler Handler) { g.Handle(http.MethodOpti
 // Context response helpers
 
 func (c *Context) SetHeader(key, value string) { c.Response.Header().Set(key, value) }
-func (c *Context) GetHeader(key string) string  { return c.Request.Header.Get(key) }
+func (c *Context) GetHeader(key string) string { return c.Request.Header.Get(key) }
 
 func (c *Context) Cookie(name string) (*http.Cookie, error) { return c.Request.Cookie(name) }
-func (c *Context) SetCookie(cookie *http.Cookie)             { http.SetCookie(c.Response, cookie) }
+func (c *Context) SetCookie(cookie *http.Cookie)            { http.SetCookie(c.Response, cookie) }
 
 func (c *Context) String(status int, format string, values ...any) error {
 	c.Response.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -517,6 +621,7 @@ func (r *Router) Start(addr string) error {
 func listenAndServe(srv *http.Server) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(quit)
 
 	errCh := make(chan error, 1)
 	go func() {

@@ -1,9 +1,13 @@
 package generators
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
+	"strings"
 )
 
 type ProjectConfig struct {
@@ -22,27 +26,53 @@ type ProjectConfig struct {
 	UseRateLimit bool
 }
 
+func NormalizeProjectConfig(config ProjectConfig) ProjectConfig {
+	if config.UseAuth && !config.UseDatabase {
+		config.UseDatabase = true
+		config.DatabaseType = "sqlite"
+	}
+	if config.UseDatabase && config.DatabaseType == "" {
+		config.DatabaseType = "postgres"
+	}
+	return config
+}
+
+func frameworkVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if info.Main.Path == "github.com/ramusaaa/routix" && strings.HasPrefix(info.Main.Version, "v") {
+			return info.Main.Version
+		}
+		for _, dependency := range info.Deps {
+			if dependency.Path == "github.com/ramusaaa/routix" && strings.HasPrefix(dependency.Version, "v") {
+				return dependency.Version
+			}
+		}
+	}
+	return "v0.4.0"
+}
+
 func GenerateGoMod(projectName string, config ProjectConfig) {
 	requirements := []string{
-		"github.com/ramusaaa/routix v0.4.0",
+		"github.com/ramusaaa/routix " + frameworkVersion(),
+		"github.com/joho/godotenv v1.5.1",
 	}
 
 	if config.UseDatabase {
-		requirements = append(requirements, "gorm.io/gorm v1.25.5")
+		requirements = append(requirements, "gorm.io/gorm v1.31.2")
 		switch config.DatabaseType {
 		case "postgres":
-			requirements = append(requirements, "gorm.io/driver/postgres v1.5.4")
+			requirements = append(requirements, "gorm.io/driver/postgres v1.6.0")
 		case "mysql":
-			requirements = append(requirements, "gorm.io/driver/mysql v1.5.2")
+			requirements = append(requirements, "gorm.io/driver/mysql v1.6.0")
 		case "sqlite":
-			requirements = append(requirements, "gorm.io/driver/sqlite v1.5.4")
+			requirements = append(requirements, "gorm.io/driver/sqlite v1.6.0")
 		}
 	}
 
 	if config.UseAuth {
 		requirements = append(requirements,
-			"github.com/golang-jwt/jwt/v5 v5.2.0",
-			"golang.org/x/crypto v0.17.0",
+			"github.com/golang-jwt/jwt/v5 v5.3.1",
+			"golang.org/x/crypto v0.45.0",
 		)
 	}
 
@@ -54,7 +84,7 @@ func GenerateGoMod(projectName string, config ProjectConfig) {
 		requirements = append(requirements, "github.com/gorilla/websocket v1.5.1")
 	}
 
-	content := fmt.Sprintf("module %s\n\ngo 1.21\n\nrequire (", projectName)
+	content := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire (", projectName)
 	for _, req := range requirements {
 		content += fmt.Sprintf("\n\t%s", req)
 	}
@@ -117,15 +147,34 @@ REDIS_DB=0
 `
 	}
 
+	example := strings.ReplaceAll(strings.ReplaceAll(content, "your-secret-key-change-this-in-production", ""), "your-jwt-secret-change-this-in-production", "")
+	var secrets [64]byte
+	if _, err := rand.Read(secrets[:]); err != nil {
+		panic(err)
+	}
+	content = strings.ReplaceAll(content, "your-secret-key-change-this-in-production", hex.EncodeToString(secrets[:32]))
+	content = strings.ReplaceAll(content, "your-jwt-secret-change-this-in-production", hex.EncodeToString(secrets[32:]))
 	writeFile(filepath.Join(projectName, ".env"), content)
-	writeFile(filepath.Join(projectName, ".env.example"), content)
+	if err := os.Chmod(filepath.Join(projectName, ".env"), 0600); err != nil {
+		panic(err)
+	}
+	writeFile(filepath.Join(projectName, ".env.example"), example)
 }
 
 func GenerateConfig(projectName string, config ProjectConfig) {
+	port, user, database := "5432", "postgres", projectName
+	if config.DatabaseType == "mysql" {
+		port, user = "3306", "root"
+	}
+	if config.DatabaseType == "sqlite" {
+		database = "./storage/database.sqlite"
+	}
 	content := `package config
 
 import (
-	"os"
+ "os"
+ "sync"
+ "github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -159,6 +208,8 @@ type DatabaseConfig struct {
 	Database   string
 	Username   string
 	Password   string
+ Socket string
+ SSLMode string
 }`
 	}
 
@@ -176,24 +227,31 @@ type RedisConfig struct {
 	content += `
 
 func Load() *Config {
-	return &Config{
+ envOnce.Do(func(){
+  values,err:=godotenv.Read(".env")
+  if err!=nil && !os.IsNotExist(err) {panic(err)}
+  envValues=values
+ })
+ cfg:= &Config{
 		AppName:   getEnv("APP_NAME", "` + projectName + `"),
 		AppEnv:    getEnv("APP_ENV", "development"),
 		Port:      getEnv("APP_PORT", "8080"),
 		Host:      getEnv("APP_HOST", "localhost"),
 		Debug:     getEnv("APP_DEBUG", "true") == "true",
-		AppKey:    getEnv("APP_KEY", "your-secret-key"),
-		JWTSecret: getEnv("JWT_SECRET", "your-jwt-secret"),`
+		AppKey:    getEnv("APP_KEY", ""),
+		JWTSecret: getEnv("JWT_SECRET", ""),`
 
 	if config.UseDatabase {
 		content += `
 		Database: DatabaseConfig{
 			Connection: getEnv("DB_CONNECTION", "` + config.DatabaseType + `"),
 			Host:       getEnv("DB_HOST", "localhost"),
-			Port:       getEnv("DB_PORT", "5432"),
-			Database:   getEnv("DB_DATABASE", "` + projectName + `"),
-			Username:   getEnv("DB_USERNAME", "postgres"),
+			Port:       getEnv("DB_PORT", "` + port + `"),
+			Database:   getEnv("DB_DATABASE", "` + database + `"),
+			Username:   getEnv("DB_USERNAME", "` + user + `"),
 			Password:   getEnv("DB_PASSWORD", "password"),
+ Socket: getEnv("DB_SOCKET",""),
+ SSLMode: getEnv("DB_SSLMODE","disable"),
 		},`
 	}
 
@@ -208,14 +266,22 @@ func Load() *Config {
 	}
 
 	content += `
+ }
+`
+	if config.UseAuth {
+		content += `if len(cfg.JWTSecret)<32 {panic("JWT_SECRET must contain at least 32 bytes")}
+`
 	}
+	content += `return cfg
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
+var envOnce sync.Once
+var envValues map[string]string
+
+func getEnv(key,defaultValue string) string {
+ if value,ok:=os.LookupEnv(key);ok {return value}
+ if value,ok:=envValues[key];ok {return value}
+ return defaultValue
 }`
 
 	writeFile(filepath.Join(projectName, "config", "config.go"), content)
