@@ -31,10 +31,12 @@ Make Commands (Code Generation):
 
 Database Commands:
   migrate                 Run database migrations
-  migrate rollback        Rollback last migration
+  migrate rollback        Rollback the last migration batch
   migrate reset           Reset all migrations
-  migrate fresh           Drop all tables and re-run migrations
+  migrate fresh           Reset registered migrations and re-run them
   migrate status          Show migration status
+  migrate repair <id> --applied|--pending
+                          Repair history after fixing a dirty migration
   seed                    Run database seeders
 
 Development Tools:

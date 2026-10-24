@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/ramusaaa/routix/cmd/routix/generators"
@@ -12,31 +13,41 @@ import (
 
 type ProjectConfig = generators.ProjectConfig
 
-func NewProject(args []string) {
+func NewProject(args []string) error {
 	if len(args) < 1 {
-		fmt.Println("Usage: routix new <project-name>")
-		return
+		return fmt.Errorf("usage: routix new <project-name>")
 	}
 
 	projectName := args[0]
+	if !regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`).MatchString(projectName) {
+		return fmt.Errorf("project name must contain letters, digits, underscores or hyphens")
+	}
+	if _, err := os.Lstat(projectName); err == nil {
+		return fmt.Errorf("target already exists: %s", projectName)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	fmt.Printf("Creating new Routix project: %s\n\n", projectName)
 
 	config := generators.ProjectConfig{Name: projectName}
 	askProjectQuestions(&config)
+	config = generators.NormalizeProjectConfig(config)
 
 	if err := os.MkdirAll(projectName, 0755); err != nil {
-		fmt.Printf("error: creating directory: %v\n", err)
-		return
+		return fmt.Errorf("create project directory: %w", err)
 	}
 
 	fmt.Printf("\nGenerating project structure...\n")
 	generateProjectStructure(projectName, config)
 
 	fmt.Printf("\nInstalling dependencies...\n")
-	runGoModTidy(projectName)
+	if err := runGoModTidy(projectName); err != nil {
+		return err
+	}
 
 	fmt.Printf("\nProject created successfully!\n\n")
 	printNextSteps(projectName, config)
+	return nil
 }
 
 func askProjectQuestions(config *generators.ProjectConfig) {
@@ -82,6 +93,9 @@ func askProjectQuestions(config *generators.ProjectConfig) {
 
 	fmt.Print("Add authentication (JWT + bcrypt)? [Y/n]: ")
 	config.UseAuth = readBoolWithValidation(reader, true)
+	if config.UseAuth && !config.UseDatabase {
+		fmt.Println("Authentication requires persistent storage; SQLite will be included.")
+	}
 
 	fmt.Print("Add caching (Redis)? [y/N]: ")
 	config.UseCache = readBoolWithValidation(reader, false)
@@ -167,6 +181,7 @@ func readChoice(reader *bufio.Reader, prompt string, validChoices []string, defa
 }
 
 func generateProjectStructure(projectName string, config generators.ProjectConfig) {
+	config = generators.NormalizeProjectConfig(config)
 	createDirectoryStructure(projectName, config)
 
 	generators.GenerateGoMod(projectName, config)
@@ -240,29 +255,20 @@ func createDirectoryStructure(projectName string, config generators.ProjectConfi
 	}
 }
 
-func runGoModTidy(projectName string) {
-	originalDir, err := os.Getwd()
+func runGoModTidy(projectName string) error {
+	command := exec.Command("go", "mod", "tidy")
+	command.Dir = projectName
+	output, err := command.CombinedOutput()
 	if err != nil {
-		fmt.Printf("  warning: could not get current directory: %v\n", err)
-		return
+		return fmt.Errorf("install project dependencies: %w\n%s", err, output)
 	}
-
-	err = os.Chdir(projectName)
-	if err != nil {
-		fmt.Printf("  warning: could not change to project directory: %v\n", err)
-		return
+	build := exec.Command("go", "build", "./...")
+	build.Dir = projectName
+	if output, err := build.CombinedOutput(); err != nil {
+		return fmt.Errorf("validate generated project: %w\n%s", err, output)
 	}
-	defer os.Chdir(originalDir)
-
-	cmd := exec.Command("go", "mod", "tidy")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		fmt.Printf("  warning: go mod tidy failed: %v\n", err)
-		fmt.Printf("  output: %s\n", string(output))
-		return
-	}
-
-	fmt.Printf("  + dependencies installed\n")
+	fmt.Println("  + dependencies installed and project build verified")
+	return nil
 }
 
 func printNextSteps(projectName string, config generators.ProjectConfig) {

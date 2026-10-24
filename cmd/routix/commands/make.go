@@ -125,7 +125,7 @@ func makeModel(args []string) {
 		if err := generators.GenerateMigration(migrationName, options); err != nil {
 			fmt.Printf("warning: could not create migration: %v\n", err)
 		} else {
-			fmt.Printf("created: database/migrations/%s.go\n", migrationName)
+			fmt.Printf("created migration: %s\n", migrationName)
 		}
 	}
 }
@@ -165,7 +165,7 @@ func makeMigration(args []string) {
 		return
 	}
 
-	fmt.Printf("created: database/migrations/%s.go\n", name)
+	fmt.Printf("created migration: %s\n", name)
 }
 
 func makeSeeder(args []string) {
@@ -184,7 +184,7 @@ func makeSeeder(args []string) {
 		return
 	}
 
-	fmt.Printf("created: database/seeders/%s.go\n", strings.ToLower(name))
+	fmt.Printf("created: database/seeders/%s_seeder.go\n", strings.ToLower(name))
 }
 
 func makeService(args []string) {

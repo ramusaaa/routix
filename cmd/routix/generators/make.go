@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -39,20 +40,35 @@ func GenerateMiddlewareFile(name string, options map[string]bool) error {
 }
 
 func GenerateMigration(name string, options map[string]bool) error {
-	timestamp := time.Now().Format("20060102150405")
-	filename := fmt.Sprintf("%s_%s.go", timestamp, strings.ToLower(name))
-	path := filepath.Join("database", "migrations", filename)
-
-	content := generateMigrationContent(name)
-	return writeFileWithError(path, content)
+	name = strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(name), " ", "_"), "-", "_"))
+	if !regexp.MustCompile(`^[a-z][a-z0-9_]*$`).MatchString(name) {
+		return fmt.Errorf("invalid migration name")
+	}
+	now := time.Now().UTC()
+	id := fmt.Sprintf("%s%09d_%s", now.Format("20060102150405"), now.Nanosecond(), name)
+	return writeNewFile(filepath.Join("database", "migrations", id+".go"), generateMigrationContent(id))
 }
 
 func GenerateSeeder(name string, options map[string]bool) error {
-	filename := strings.ToLower(name) + "_seeder.go"
-	path := filepath.Join("database", "seeders", filename)
+	if !regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`).MatchString(name) {
+		return fmt.Errorf("invalid seeder name")
+	}
+	return writeNewFile(filepath.Join("database", "seeders", strings.ToLower(name)+"_seeder.go"), generateSeederContent(name))
+}
 
-	content := generateSeederContent(name)
-	return writeFileWithError(path, content)
+func writeNewFile(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.WriteString(content); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func GenerateService(name string, options map[string]bool) error {
@@ -89,7 +105,7 @@ func GenerateTest(name string, options map[string]bool) error {
 
 func GenerateModule(name string, options map[string]bool) error {
 	modulePath := filepath.Join("app", "modules", strings.ToLower(name))
-	
+
 	dirs := []string{
 		"controllers",
 		"models",
@@ -196,7 +212,7 @@ import (
 type %s struct {
 	BaseModel
 	// Add your fields here
-	Name string ` + "`" + `gorm:"not null" json:"name"` + "`" + `
+	Name string `+"`"+`gorm:"not null" json:"name"`+"`"+`
 }
 
 func (m *%s) TableName() string {
@@ -234,45 +250,38 @@ func %s() routix.Middleware {
 }`, name, name)
 }
 
-func generateMigrationContent(name string) string {
+func generateMigrationContent(id string) string {
 	return fmt.Sprintf(`package migrations
 
 import (
-	"gorm.io/gorm"
+ "fmt"
+ "gorm.io/gorm"
 )
 
 func init() {
-	RegisterMigration(&Migration{
-		ID:   "%s",
-		Up:   up_%s,
-		Down: down_%s,
-	})
+ RegisterMigration(&Migration{
+  ID: %q,
+  Up: func(db *gorm.DB) error {return fmt.Errorf("implement Up for %%s",%q)},
+  Down: func(db *gorm.DB) error {return fmt.Errorf("implement Down for %%s",%q)},
+ })
 }
-
-func up_%s(db *gorm.DB) error {
-	// TODO: Implement migration up logic
-	return nil
-}
-
-func down_%s(db *gorm.DB) error {
-	// TODO: Implement migration down logic
-	return nil
-}`, name, strings.ReplaceAll(name, " ", "_"), strings.ReplaceAll(name, " ", "_"), strings.ReplaceAll(name, " ", "_"), strings.ReplaceAll(name, " ", "_"))
+`, id, id, id)
 }
 
 func generateSeederContent(name string) string {
 	return fmt.Sprintf(`package seeders
 
 import (
-	"gorm.io/gorm"
+ "fmt"
+ "gorm.io/gorm"
 )
 
 type %sSeeder struct{}
 
-func (s *%sSeeder) Run(db *gorm.DB) error {
-	// TODO: Implement seeder logic
-	return nil
-}`, name, name)
+func init() {RegisterSeeder(&%sSeeder{})}
+
+func (s *%sSeeder) Run(db *gorm.DB) error {return fmt.Errorf("implement seeder %%s",%q)}
+`, name, name, name, name)
 }
 
 func generateServiceContent(name string) string {
@@ -301,7 +310,7 @@ import (
 
 type %sRequest struct {
 	// Add validation fields here
-	Name string ` + "`" + `json:"name" validate:"required"` + "`" + `
+	Name string `+"`"+`json:"name" validate:"required"`+"`"+`
 }
 
 func (r *%sRequest) Validate(c *routix.Context) error {
@@ -314,8 +323,8 @@ func generateResourceContent(name string) string {
 	return fmt.Sprintf(`package resources
 
 type %sResource struct {
-	ID   uint   ` + "`" + `json:"id"` + "`" + `
-	Name string ` + "`" + `json:"name"` + "`" + `
+	ID   uint   `+"`"+`json:"id"`+"`"+`
+	Name string `+"`"+`json:"name"`+"`"+`
 	// Add other fields here
 }
 
@@ -399,7 +408,7 @@ func writeFileWithError(path, content string) error {
 		return err
 	}
 	defer file.Close()
-	
+
 	_, err = file.WriteString(content)
 	return err
 }
