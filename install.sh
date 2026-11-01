@@ -51,8 +51,8 @@ GO_VERSION="$(go version | awk '{print $3}' | sed 's/go//')"
 GO_MAJOR="$(echo "$GO_VERSION" | cut -d. -f1)"
 GO_MINOR="$(echo "$GO_VERSION" | cut -d. -f2)"
 
-if [ "$GO_MAJOR" -lt 1 ] || { [ "$GO_MAJOR" -eq 1 ] && [ "$GO_MINOR" -lt 21 ]; }; then
-    die "Go 1.21 or newer is required (found $GO_VERSION). Update at https://go.dev/dl/"
+if [ "$GO_MAJOR" -lt 1 ] || { [ "$GO_MAJOR" -eq 1 ] && [ "$GO_MINOR" -lt 25 ]; }; then
+    die "Go 1.25 or newer is required (found $GO_VERSION). Update at https://go.dev/dl/"
 fi
 
 print_ok "Go $GO_VERSION ($OS_NAME/$ARCH_NAME)"

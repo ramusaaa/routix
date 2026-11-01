@@ -6,11 +6,44 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Validator struct {
+	mu     sync.Mutex
 	errors []ValidationError
+}
+
+type validatorField struct {
+	index int
+	name  string
+	rules []string
+}
+
+type validatorRegex struct {
+	once    sync.Once
+	pattern *regexp.Regexp
+	err     error
+}
+
+var validatorFields sync.Map
+var validatorPatterns sync.Map
+var validatorEmail = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+func fieldsForValidation(typ reflect.Type) []validatorField {
+	if cached, ok := validatorFields.Load(typ); ok {
+		return cached.([]validatorField)
+	}
+	fields := make([]validatorField, 0, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if tag := field.Tag.Get("validate"); tag != "" {
+			fields = append(fields, validatorField{index: i, name: field.Name, rules: strings.Split(tag, ",")})
+		}
+	}
+	cached, _ := validatorFields.LoadOrStore(typ, fields)
+	return cached.([]validatorField)
 }
 
 func NewValidator() *Validator {
@@ -20,34 +53,28 @@ func NewValidator() *Validator {
 }
 
 func (v *Validator) Validate(obj interface{}) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.errors = nil
 	val := reflect.ValueOf(obj)
-	if val.Kind() == reflect.Ptr {
+	for val.IsValid() && val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			v.errors = append(v.errors, *NewValidationError("", "object must be a non-nil struct"))
+			return false
+		}
 		val = val.Elem()
 	}
-
-	if val.Kind() != reflect.Struct {
+	if !val.IsValid() || val.Kind() != reflect.Struct {
 		v.errors = append(v.errors, *NewValidationError("", "object must be a struct"))
 		return false
 	}
-
-	typ := val.Type()
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		fieldType := typ.Field(i)
-		tag := fieldType.Tag.Get("validate")
-
-		if tag == "" {
-			continue
-		}
-
-		rules := strings.Split(tag, ",")
-		for _, rule := range rules {
-			if err := v.validateField(field, fieldType.Name, rule); err != nil {
+	for _, field := range fieldsForValidation(val.Type()) {
+		for _, rule := range field.rules {
+			if err := v.validateField(val.Field(field.index), field.name, rule); err != nil {
 				v.errors = append(v.errors, *err)
 			}
 		}
 	}
-
 	return len(v.errors) == 0
 }
 
@@ -79,7 +106,11 @@ func (v *Validator) validateField(field reflect.Value, fieldName, rule string) *
 		}
 	case strings.HasPrefix(rule, "regex="):
 		pattern := rule[6:]
-		if !validateRegex(field, pattern) {
+		matched, err := validateRegex(field, pattern)
+		if err != nil {
+			return NewValidationError(fieldName, "invalid regex validation rule")
+		}
+		if !matched {
 			return NewValidationError(fieldName, "must match the required pattern")
 		}
 	case strings.HasPrefix(rule, "enum="):
@@ -99,6 +130,9 @@ func (v *Validator) validateField(field reflect.Value, fieldName, rule string) *
 
 // isEmpty checks if a field is empty
 func isEmpty(field reflect.Value) bool {
+	if !field.IsValid() {
+		return true
+	}
 	switch field.Kind() {
 	case reflect.String:
 		return field.String() == ""
@@ -110,7 +144,7 @@ func isEmpty(field reflect.Value) bool {
 		return field.Float() == 0
 	case reflect.Bool:
 		return !field.Bool()
-	case reflect.Slice, reflect.Map, reflect.Interface:
+	case reflect.Slice, reflect.Map, reflect.Interface, reflect.Ptr:
 		return field.IsNil()
 	}
 	return false
@@ -166,17 +200,24 @@ func validateEmail(field reflect.Value) bool {
 	if field.Kind() != reflect.String {
 		return false
 	}
-	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-	return emailRegex.MatchString(field.String())
+	return validatorEmail.MatchString(field.String())
 }
 
 // validateRegex validates against a regular expression
-func validateRegex(field reflect.Value, pattern string) bool {
-	if field.Kind() != reflect.String {
-		return false
+func validateRegex(field reflect.Value, pattern string) (bool, error) {
+	cached, ok := validatorPatterns.Load(pattern)
+	if !ok {
+		cached, _ = validatorPatterns.LoadOrStore(pattern, &validatorRegex{})
 	}
-	regex := regexp.MustCompile(pattern)
-	return regex.MatchString(field.String())
+	compiled := cached.(*validatorRegex)
+	compiled.once.Do(func() { compiled.pattern, compiled.err = regexp.Compile(pattern) })
+	if compiled.err != nil {
+		return false, compiled.err
+	}
+	if field.Kind() != reflect.String {
+		return false, nil
+	}
+	return compiled.pattern.MatchString(field.String()), nil
 }
 
 // validateEnum validates against a list of allowed values
@@ -211,7 +252,9 @@ func parseNumber(s string) float64 {
 
 // Errors returns all validation errors
 func (v *Validator) Errors() []ValidationError {
-	return v.errors
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return append([]ValidationError{}, v.errors...)
 }
 
 // ValidateJSON validates JSON data against a struct
@@ -219,7 +262,7 @@ func ValidateJSON(data []byte, v interface{}) error {
 	if err := json.Unmarshal(data, v); err != nil {
 		return BadRequest("Invalid JSON format", err)
 	}
-	
+
 	validator := NewValidator()
 	if !validator.Validate(v) {
 		errors := validator.Errors()
@@ -227,7 +270,7 @@ func ValidateJSON(data []byte, v interface{}) error {
 			return BadRequest("Validation failed", ValidationErrors(convertToValidationErrors(errors)))
 		}
 	}
-	
+
 	return nil
 }
 

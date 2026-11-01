@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -101,12 +100,8 @@ func (t *Telemetry) Middleware() routix.Middleware {
 				}
 				if err != nil {
 					span.RecordError(err)
-					if status < 400 {
-						status = http.StatusInternalServerError
-						var responseError *routix.Error
-						if errors.As(err, &responseError) {
-							status = responseError.Code
-						}
+					if !c.ResponseWritten() {
+						status = routix.GetHTTPStatusCode(err)
 					}
 				}
 				if status >= 500 {

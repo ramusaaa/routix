@@ -35,6 +35,8 @@ package routix
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -56,6 +58,9 @@ func Logger() Middleware {
 			err := next(c)
 
 			status := c.Status()
+			if err != nil && !c.ResponseWritten() {
+				status = GetHTTPStatusCode(err)
+			}
 			duration := time.Since(start)
 
 			color := "\033[32m" // green
@@ -74,7 +79,7 @@ func Logger() Middleware {
 // ErrorHandler is a middleware that handles errors in a consistent way
 func ErrorHandler() Middleware {
 	return func(next Handler) Handler {
-		return func(c *Context) error { writeHandlerError(c, next(c)); return nil }
+		return next
 	}
 }
 
@@ -86,8 +91,7 @@ func Recovery() Middleware {
 					if recovered == http.ErrAbortHandler {
 						panic(recovered)
 					}
-					writeHandlerError(c, InternalServerError("Internal Server Error", nil))
-					err = nil
+					err = InternalServerError("Internal Server Error", nil)
 				}
 			}()
 			return next(c)
@@ -248,8 +252,17 @@ func Validate(v interface{}) Middleware {
 	}
 }
 
+type CacheOptions struct {
+	Key  func(*Context) string
+	Skip func(*Context) bool
+}
+
 // Cache caches responses for a specified duration
 func Cache(duration time.Duration) Middleware {
+	return CacheWithOptions(duration, CacheOptions{})
+}
+
+func CacheWithOptions(duration time.Duration, config CacheOptions) Middleware {
 	type cachedResponse struct {
 		body    []byte
 		headers http.Header
@@ -261,10 +274,19 @@ func Cache(duration time.Duration) Middleware {
 	var mu sync.Mutex
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			if duration <= 0 || c.Request.Method != http.MethodGet || c.GetHeader("Authorization") != "" || c.GetHeader("Cookie") != "" || c.GetHeader("Range") != "" || c.GetHeader("Cache-Control") != "" || c.GetHeader("If-None-Match") != "" || c.GetHeader("If-Modified-Since") != "" {
+			if duration <= 0 || config.Skip != nil && config.Skip(c) || c.Request.Method != http.MethodGet || len(c.Request.Header.Values("Authorization")) > 0 || len(c.Request.Header.Values("Cookie")) > 0 || len(c.Request.Header.Values("Range")) > 0 || len(c.Request.Header.Values("Cache-Control")) > 0 || len(c.Request.Header.Values("If-None-Match")) > 0 || len(c.Request.Header.Values("If-Modified-Since")) > 0 {
 				return next(c)
 			}
-			key := c.Request.Host + "\n" + c.Request.URL.RequestURI() + "\n" + c.GetHeader("Accept-Encoding") + "\n" + c.GetHeader("Origin")
+			scope := ""
+			if config.Key != nil {
+				scope = config.Key(c)
+			}
+			encoded, err := json.Marshal([]any{c.Request.Host, c.Request.URL.RequestURI(), c.Request.Header, scope})
+			if err != nil {
+				return next(c)
+			}
+			digest := sha256.Sum256(encoded)
+			key := string(digest[:])
 			mu.Lock()
 			now := time.Now()
 			if !now.Before(nextCleanup) {
@@ -294,7 +316,7 @@ func Cache(duration time.Duration) Middleware {
 			c.Writer = &responseWriter{ResponseWriter: capture}
 			c.Response = c.Writer
 			defer func() { c.Writer = originalWriter; c.Response = originalResponse }()
-			err := next(c)
+			err = next(c)
 			ttl := cacheTTL(capture.Header().Get("Cache-Control"), duration)
 			if err == nil && c.Status() == http.StatusOK && !capture.tooLarge && !capture.flushed && len(capture.Header().Values("Set-Cookie")) == 0 && capture.Header().Get("Vary") == "" && capture.Header().Get("Expires") == "" && ttl > 0 {
 				item = cachedResponse{body: bytes.Clone(capture.body.Bytes()), headers: capture.Header().Clone(), code: c.Status(), expires: time.Now().Add(ttl)}
@@ -361,7 +383,7 @@ func Compress() Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) error {
 			addVary(c.Response.Header(), "Accept-Encoding")
-			if c.Request.Method == http.MethodHead || c.GetHeader("Range") != "" || !acceptsGzip(c.GetHeader("Accept-Encoding")) {
+			if c.Request.Method == http.MethodHead || len(c.Request.Header.Values("Range")) > 0 || !acceptsGzip(c.GetHeader("Accept-Encoding")) {
 				return next(c)
 			}
 			originalWriter, originalResponse := c.Writer, c.Response
