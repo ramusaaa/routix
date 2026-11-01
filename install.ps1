@@ -34,8 +34,8 @@ $goVersionOutput = & go version
 if ($goVersionOutput -match "go(\d+)\.(\d+)") {
     $goMajor = [int]$Matches[1]
     $goMinor = [int]$Matches[2]
-    if ($goMajor -lt 1 -or ($goMajor -eq 1 -and $goMinor -lt 21)) {
-        Write-Fail "Go 1.21 or newer is required (found $goMajor.$goMinor). Update at https://go.dev/dl/"
+    if ($goMajor -lt 1 -or ($goMajor -eq 1 -and $goMinor -lt 25)) {
+        Write-Fail "Go 1.25 or newer is required (found $goMajor.$goMinor). Update at https://go.dev/dl/"
     }
     Write-Ok "Go $goMajor.$goMinor"
 } else {

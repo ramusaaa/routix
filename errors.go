@@ -3,6 +3,7 @@
 package routix
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -64,10 +65,13 @@ func IsValidationErrors(err error) bool {
 // GetHTTPStatusCode returns the appropriate HTTP status code for the given error.
 // It handles both ValidationError and Error types, defaulting to 500 for unknown errors.
 func GetHTTPStatusCode(err error) int {
-	if e, ok := err.(*Error); ok {
-		return e.Code
+	var responseError *Error
+	if errors.As(err, &responseError) && responseError != nil {
+		return responseError.Code
 	}
-	if _, ok := err.(*ValidationError); ok {
+	var fieldError *ValidationError
+	var validationErrors ValidationErrors
+	if errors.As(err, &fieldError) || errors.As(err, &validationErrors) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

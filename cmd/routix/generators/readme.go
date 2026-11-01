@@ -43,7 +43,7 @@ A modern Go web application built with [Routix](https://github.com/ramusaaa/rout
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.25 or higher
 - Git`
 
 	if config.UseDatabase && config.DatabaseType == "postgres" {

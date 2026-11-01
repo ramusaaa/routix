@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -114,8 +115,15 @@ func (c *Context) Status() int {
 	return c.Writer.Status()
 }
 
-func getContextFromPool(req *http.Request, w *responseWriter, params, query map[string]string, body map[string]any) *Context {
-	ctx := getContext()
+func (c *Context) ResponseWritten() bool { return c.Writer.written }
+
+func newRequestContext(req *http.Request, w *responseWriter, params, query map[string]string, body map[string]any, pooled bool) *Context {
+	var ctx *Context
+	if pooled {
+		ctx = getContext()
+	} else {
+		ctx = &Context{}
+	}
 	ctx.Request = req
 	ctx.Writer = w
 	ctx.Response = w
@@ -175,6 +183,7 @@ type Router struct {
 	MaxBodyBytes   int64
 	trustedProxies []*net.IPNet
 	mu             sync.RWMutex
+	disablePooling atomic.Bool
 }
 
 type node struct {
@@ -329,6 +338,7 @@ func (r *Router) handle(method, path string, handler Handler, middleware []Middl
 		}
 
 	}
+
 	if root.handler == nil {
 		root.routeIndex = len(r.routes)
 		r.routes = append(r.routes, RouteInfo{Method: method, Path: path})
@@ -411,8 +421,14 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w = headResponseWriter{w}
 	}
 	rw := &responseWriter{ResponseWriter: w}
-	params := r.params.Get().(map[string]string)
-	defer func() { clear(params); r.params.Put(params) }()
+	pooled := !r.disablePooling.Load()
+	var params map[string]string
+	if pooled {
+		params = r.params.Get().(map[string]string)
+		defer func() { clear(params); r.params.Put(params) }()
+	} else {
+		params = make(map[string]string)
+	}
 	var query map[string]string
 	if req.URL.RawQuery != "" {
 		query = make(map[string]string)
@@ -422,8 +438,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
-	ctx := getContextFromPool(req, rw, params, query, nil)
-	defer putContextToPool(ctx)
+	ctx := newRequestContext(req, rw, params, query, nil, pooled)
+	if pooled {
+		defer putContextToPool(ctx)
+	}
 
 	r.mu.RLock()
 	matched, found := r.findRoute(r.trees[req.Method], req.URL.Path, params)
@@ -483,13 +501,11 @@ func executeHandler(c *Context) error {
 	if c.bodyErr != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(c.bodyErr, &tooLarge) {
-			return c.JSON(http.StatusRequestEntityTooLarge, map[string]any{"message": "request body too large"})
+			return NewError(http.StatusRequestEntityTooLarge, "request body too large", c.bodyErr)
 		}
-		return c.BadRequest("invalid JSON body")
+		return BadRequest("invalid JSON body", c.bodyErr)
 	}
-	err := c.handler(c)
-	writeHandlerError(c, err)
-	return err
+	return c.handler(c)
 }
 
 func writeHandlerError(c *Context, err error) {
@@ -502,7 +518,8 @@ func writeHandlerError(c *Context, err error) {
 		_ = c.JSON(re.Code, response)
 		return
 	}
-	_ = c.JSON(http.StatusInternalServerError, ErrorResponse{Code: http.StatusInternalServerError, Message: "Internal Server Error"})
+	status := GetHTTPStatusCode(err)
+	_ = c.JSON(status, ErrorResponse{Code: status, Message: http.StatusText(status)})
 }
 
 func (r *Router) findRoute(root *node, path string, params map[string]string) (*node, bool) {

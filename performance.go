@@ -41,20 +41,18 @@ func putContext(c *Context) {
 // FastRouter is an optimized version of Router for high-performance scenarios
 type FastRouter struct {
 	*Router
-	enablePooling bool
 }
 
 // NewFastRouter creates a new high-performance router
 func NewFastRouter() *FastRouter {
 	return &FastRouter{
-		Router:        New(),
-		enablePooling: true,
+		Router: New(),
 	}
 }
 
 // DisablePooling disables context pooling (useful for debugging)
 func (fr *FastRouter) DisablePooling() *FastRouter {
-	fr.enablePooling = false
+	fr.disablePooling.Store(true)
 	return fr
 }
 
