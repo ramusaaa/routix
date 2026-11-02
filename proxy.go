@@ -27,6 +27,7 @@ func (r *Router) SetTrustedProxies(proxies []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.trustedProxies = networks
+	r.dispatch.Store(nil)
 	return nil
 }
 
@@ -37,12 +38,12 @@ func remoteIP(address string) string {
 	return address
 }
 
-func (r *Router) trustsProxy(address string) bool {
-	if len(r.trustedProxies) == 0 {
+func trustsProxy(address string, proxies []*net.IPNet) bool {
+	if len(proxies) == 0 {
 		return false
 	}
 	ip := net.ParseIP(address)
-	for _, network := range r.trustedProxies {
+	for _, network := range proxies {
 		if network.Contains(ip) {
 			return true
 		}
@@ -50,16 +51,16 @@ func (r *Router) trustsProxy(address string) bool {
 	return false
 }
 
-func (r *Router) requestClientIP(req *http.Request) string {
+func requestClientIP(req *http.Request, proxies []*net.IPNet) string {
 	peer := remoteIP(req.RemoteAddr)
-	if !r.trustsProxy(peer) {
+	if !trustsProxy(peer, proxies) {
 		return peer
 	}
 	if values := req.Header.Values("X-Forwarded-For"); strings.TrimSpace(strings.Join(values, ",")) != "" {
 		chain := strings.Split(strings.Join(values, ","), ",")
 		current := peer
 		for i := len(chain) - 1; i >= 0; i-- {
-			if !r.trustsProxy(current) {
+			if !trustsProxy(current, proxies) {
 				return current
 			}
 			value := strings.TrimSpace(chain[i])
@@ -76,9 +77,15 @@ func (r *Router) requestClientIP(req *http.Request) string {
 	return peer
 }
 
-func (r *Router) requestIsSecure(req *http.Request) bool {
+func requestIsSecure(req *http.Request, proxies []*net.IPNet) bool {
+	if req.TLS != nil {
+		return true
+	}
+	if len(proxies) == 0 {
+		return false
+	}
 	values := req.Header.Values("X-Forwarded-Proto")
-	return req.TLS != nil || r.trustsProxy(remoteIP(req.RemoteAddr)) && len(values) == 1 && values[0] == "https"
+	return trustsProxy(remoteIP(req.RemoteAddr), proxies) && len(values) == 1 && values[0] == "https"
 }
 
 func (c *Context) IsSecure() bool    { return c.secure || c.Request.TLS != nil }

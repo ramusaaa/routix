@@ -67,25 +67,31 @@ func (rw *responseWriter) Status() int {
 
 // Context holds request/response state for a single HTTP request.
 type Context struct {
-	Request   *http.Request
-	Writer    *responseWriter
-	Response  http.ResponseWriter // kept for backward compat; points to Writer
-	Params    map[string]string
-	Query     map[string]string
-	Body      map[string]any
-	values    map[string]any
-	rawBody   []byte
-	bodyRead  bool
-	bodyErr   error
-	bodyLimit int64
-	handler   Handler
-	clientIP  string
-	routePath string
-	secure    bool
+	Request       *http.Request
+	Writer        *responseWriter
+	Response      http.ResponseWriter // kept for backward compat; points to Writer
+	Params        map[string]string
+	Query         map[string]string
+	Body          map[string]any
+	values        map[string]any
+	rawBody       []byte
+	bodyRead      bool
+	dirty         bool
+	bodyErr       error
+	bodyLimit     int64
+	handler       Handler
+	clientIP      string
+	routePath     string
+	secure        bool
+	writer        responseWriter
+	jsonWriter    jsonResponseWriter
+	requestPeer   string
+	requestParams map[string]string
 }
 
 // Set stores a value in the context, scoped to this request.
 func (c *Context) Set(key string, value any) {
+	c.dirty = true
 	if c.values == nil {
 		c.values = make(map[string]any)
 	}
@@ -117,7 +123,7 @@ func (c *Context) Status() int {
 
 func (c *Context) ResponseWritten() bool { return c.Writer.written }
 
-func newRequestContext(req *http.Request, w *responseWriter, params, query map[string]string, body map[string]any, pooled bool) *Context {
+func newRequestContext(req *http.Request, w http.ResponseWriter, query map[string]string, pooled bool) *Context {
 	var ctx *Context
 	if pooled {
 		ctx = getContext()
@@ -125,39 +131,60 @@ func newRequestContext(req *http.Request, w *responseWriter, params, query map[s
 		ctx = &Context{}
 	}
 	ctx.Request = req
-	ctx.Writer = w
-	ctx.Response = w
-	ctx.Params = params
-	ctx.Query = query
-	ctx.Body = body
-	ctx.values = nil
-	ctx.rawBody = nil
-	ctx.bodyRead = false
-	ctx.bodyErr = nil
-	ctx.bodyLimit = 1 << 20
-	ctx.handler = nil
-	ctx.clientIP = ""
-	ctx.routePath = ""
-	ctx.secure = false
+	ctx.writer = responseWriter{ResponseWriter: w}
+	ctx.Writer = &ctx.writer
+	ctx.Response = &ctx.writer
+	if ctx.requestParams == nil {
+		ctx.requestParams = make(map[string]string)
+	}
+	ctx.Params = ctx.requestParams
+	if query != nil {
+		ctx.Query = query
+	}
 	return ctx
 }
 
 func putContextToPool(ctx *Context) {
+	if len(ctx.requestParams) != 0 {
+		clear(ctx.requestParams)
+	}
 	ctx.Request = nil
 	ctx.Writer = nil
 	ctx.Response = nil
 	ctx.Params = nil
-	ctx.Query = nil
-	ctx.Body = nil
-	ctx.values = nil
-	ctx.rawBody = nil
-	ctx.bodyRead = false
-	ctx.bodyErr = nil
-	ctx.bodyLimit = 1 << 20
-	ctx.handler = nil
-	ctx.clientIP = ""
+	if ctx.Query != nil {
+		ctx.Query = nil
+	}
+	if ctx.Body != nil {
+		ctx.Body = nil
+	}
+	if ctx.dirty {
+		if ctx.values != nil {
+			ctx.values = nil
+		}
+		if ctx.rawBody != nil {
+			ctx.rawBody = nil
+		}
+		if ctx.bodyErr != nil {
+			ctx.bodyErr = nil
+		}
+		ctx.bodyRead = false
+		if ctx.handler != nil {
+			ctx.handler = nil
+		}
+		if ctx.clientIP != "" {
+			ctx.clientIP = ""
+		}
+		if ctx.jsonWriter.response != nil || ctx.jsonWriter.status != 0 {
+			ctx.jsonWriter = jsonResponseWriter{}
+		}
+		ctx.dirty = false
+	}
+	ctx.bodyLimit = 0
 	ctx.routePath = ""
+	ctx.requestPeer = ""
 	ctx.secure = false
+	ctx.writer = responseWriter{}
 	putContext(ctx)
 }
 
@@ -174,7 +201,6 @@ type RouteInfo struct {
 type Router struct {
 	trees          map[string]*node
 	routes         []RouteInfo
-	params         *sync.Pool
 	notFound       Handler
 	notMethod      Handler
 	middleware     []Middleware
@@ -183,18 +209,20 @@ type Router struct {
 	MaxBodyBytes   int64
 	trustedProxies []*net.IPNet
 	mu             sync.RWMutex
+	dispatch       atomic.Pointer[routingState]
 	disablePooling atomic.Bool
 }
 
 type node struct {
-	path       string
-	handler    Handler
-	children   map[string]*node
-	params     []string
-	wildcard   bool
-	paramNames []string
-	routeIndex int
-	middleware []Middleware
+	handler       Handler
+	routePath     string
+	paramName     string
+	middleware    []Middleware
+	paramNames    []string
+	children      map[string]*node
+	paramChild    *node
+	wildcardChild *node
+	routeIndex    int
 }
 
 // Middleware wraps a Handler with additional logic.
@@ -204,11 +232,6 @@ type Middleware func(Handler) Handler
 func New() *Router {
 	return &Router{
 		trees: make(map[string]*node),
-		params: &sync.Pool{
-			New: func() any {
-				return make(map[string]string)
-			},
-		},
 		notFound: func(c *Context) error {
 			c.Response.Header().Set("Content-Type", "application/json")
 			c.Response.WriteHeader(http.StatusNotFound)
@@ -237,6 +260,7 @@ func (r *Router) Use(middleware ...Middleware) *Router {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.middleware = append(r.middleware, middleware...)
+	r.dispatch.Store(nil)
 	return r
 }
 
@@ -308,29 +332,24 @@ func (r *Router) handle(method, path string, handler Handler, middleware []Middl
 		}
 		switch {
 		case part[0] == ':':
-			paramName := part[1:]
 			if root.children[":"] == nil {
 				root.children[":"] = &node{
-					path:     part,
 					children: make(map[string]*node),
-					params:   []string{paramName},
-					wildcard: true,
 				}
 			}
-			root = root.children[":"]
+			root.paramChild = root.children[":"]
+			root = root.paramChild
 		case part == "*":
 			if root.children["*"] == nil {
 				root.children["*"] = &node{
-					path:     part,
 					children: make(map[string]*node),
-					wildcard: true,
 				}
 			}
-			root = root.children["*"]
+			root.wildcardChild = root.children["*"]
+			root = root.wildcardChild
 		default:
 			if root.children[part] == nil {
 				root.children[part] = &node{
-					path:     part,
 					children: make(map[string]*node),
 				}
 			}
@@ -348,6 +367,8 @@ func (r *Router) handle(method, path string, handler Handler, middleware []Middl
 	root.handler = handler
 	root.middleware = append([]Middleware(nil), middleware...)
 	root.paramNames = names
+	root.routePath = path
+	r.dispatch.Store(nil)
 }
 
 func (r *Router) GET(path string, handler Handler)     { r.Handle(http.MethodGet, path, handler) }
@@ -358,11 +379,17 @@ func (r *Router) PATCH(path string, handler Handler)   { r.Handle(http.MethodPat
 func (r *Router) HEAD(path string, handler Handler)    { r.Handle(http.MethodHead, path, handler) }
 func (r *Router) OPTIONS(path string, handler Handler) { r.Handle(http.MethodOptions, path, handler) }
 
-func (r *Router) NotFound(handler Handler) { r.mu.Lock(); defer r.mu.Unlock(); r.notFound = handler }
+func (r *Router) NotFound(handler Handler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.notFound = handler
+	r.dispatch.Store(nil)
+}
 func (r *Router) MethodNotAllowed(handler Handler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.notMethod = handler
+	r.dispatch.Store(nil)
 }
 
 type routerCachedResponse struct {
@@ -420,15 +447,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method == http.MethodHead {
 		w = headResponseWriter{w}
 	}
-	rw := &responseWriter{ResponseWriter: w}
 	pooled := !r.disablePooling.Load()
-	var params map[string]string
-	if pooled {
-		params = r.params.Get().(map[string]string)
-		defer func() { clear(params); r.params.Put(params) }()
-	} else {
-		params = make(map[string]string)
-	}
 	var query map[string]string
 	if req.URL.RawQuery != "" {
 		query = make(map[string]string)
@@ -438,34 +457,126 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
-	ctx := newRequestContext(req, rw, params, query, nil, pooled)
+	ctx := newRequestContext(req, w, query, pooled)
+	params := ctx.Params
 	if pooled {
 		defer putContextToPool(ctx)
 	}
 
-	r.mu.RLock()
-	matched, found := r.findRoute(r.trees[req.Method], req.URL.Path, params)
-	if !found && req.Method == http.MethodHead {
-		matched, found = r.findRoute(r.trees[http.MethodGet], req.URL.Path, params)
+	state := r.dispatch.Load()
+	if state == nil {
+		state = r.routingState()
 	}
+	path := req.URL.Path
+	routes := state.routesFor(req.Method)
+	retried := false
+	var matched *node
+	for {
+		if routes != nil {
+			if n := routes.prefixes; n != nil && strings.HasPrefix(path, n.prefix) {
+				rest := path[len(n.prefix):]
+				for n.route == nil && len(rest) != 0 {
+					var child *routePrefix
+					skip := 1
+					if flat := n.flat; flat != nil {
+						skip = int(flat.depth)
+						if len(rest) < skip {
+							break
+						}
+						var index int
+						if flat.lookup != nil {
+							index = int(flat.lookup[0][rest[0]]) + int(flat.lookup[1][rest[1]])
+							if skip == 3 {
+								index += int(flat.lookup[2][rest[2]])
+							}
+							if index >= len(n.children) {
+								break
+							}
+						} else {
+							first := int(rest[0]) - int(flat.lows[0])
+							second := int(rest[1]) - int(flat.lows[1])
+							if uint(first) >= uint(flat.widths[0]) || uint(second) >= uint(flat.widths[1]) {
+								break
+							}
+							index = first*int(flat.widths[1]) + second
+							if skip == 3 {
+								third := int(rest[2]) - int(flat.lows[2])
+								if uint(third) >= uint(flat.widths[2]) {
+									break
+								}
+								index = index*int(flat.widths[2]) + third
+							}
+						}
+						child = n.children[index]
+					} else {
+						child = n.child(rest[0])
+					}
+					if child == nil {
+						break
+					}
+					if len(child.prefix) > 1 && !strings.HasPrefix(rest[skip:], child.prefix[1:]) {
+						break
+					}
+					rest = rest[skip+len(child.prefix)-1:]
+					n = child
+				}
+				if route := n.route; route != nil {
+					if n.wildcard {
+						for len(rest) > 0 && rest[0] == '/' {
+							rest = rest[1:]
+						}
+						params["*"] = rest
+						matched = route
+						break
+					}
+					if rest != "" && strings.IndexByte(rest, '/') < 0 {
+						params[route.paramName] = rest
+						matched = route
+						break
+					}
+				}
+			}
+			if len(routes.static) != 0 {
+				matched = routes.static[path]
+				if matched != nil {
+					break
+				}
+			}
+			matched, _ = matchRoute(routes.root, path, params)
+			if matched != nil {
+				break
+			}
+		}
+		if req.Method != http.MethodHead || retried {
+			break
+		}
+		retried = true
+		routes = state.get
+	}
+	found := matched != nil
 	var handler Handler
 	if found {
 		handler = matched.handler
-		ctx.routePath = r.routes[matched.routeIndex].Path
+		ctx.routePath = matched.routePath
 	}
-	ctx.clientIP = r.requestClientIP(req)
-	ctx.secure = r.requestIsSecure(req)
+	ctx.requestPeer = req.RemoteAddr
+	ctx.secure = req.TLS != nil
+	if len(state.proxies) != 0 {
+		ctx.dirty = true
+		ctx.clientIP = requestClientIP(req, state.proxies)
+		ctx.secure = requestIsSecure(req, state.proxies)
+	}
 	if !found {
 		allowed := make(map[string]bool)
-		for method, root := range r.trees {
-			if _, ok := r.findRoute(root, req.URL.Path, make(map[string]string)); ok {
+		for method, routes := range state.methods {
+			if _, ok := matchRoute(routes.root, path, make(map[string]string)); ok {
 				allowed[method] = true
 			}
 		}
 		if allowed[http.MethodGet] {
 			allowed[http.MethodHead] = true
 		}
-		handler = r.notFound
+		handler = state.notFound
 		if len(allowed) > 0 {
 			methods := make([]string, 0, len(allowed))
 			for method := range allowed {
@@ -473,21 +584,22 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 			sort.Strings(methods)
 			ctx.SetHeader("Allow", strings.Join(methods, ", "))
-			handler = r.notMethod
+			handler = state.notMethod
 		}
 	}
-	middleware := append([]Middleware(nil), r.middleware...)
-	if found {
-		middleware = append(middleware, matched.middleware...)
+	ctx.bodyLimit = r.MaxBodyBytes
+	if len(state.middleware) != 0 || found && len(matched.middleware) != 0 || req.Body != nil && req.Body != http.NoBody {
+		ctx.dirty = true
+		ctx.handler = handler
+		handler = executeHandler
 	}
-	maxBody := r.MaxBodyBytes
-	ctx.bodyLimit = maxBody
-	r.mu.RUnlock()
-
-	ctx.handler = handler
-	handler = executeHandler
-	for i := len(middleware) - 1; i >= 0; i-- {
-		handler = middleware[i](handler)
+	if found {
+		for i := len(matched.middleware) - 1; i >= 0; i-- {
+			handler = matched.middleware[i](handler)
+		}
+	}
+	for i := len(state.middleware) - 1; i >= 0; i-- {
+		handler = state.middleware[i](handler)
 	}
 	if err := handler(ctx); err != nil {
 		writeHandlerError(ctx, err)
@@ -495,10 +607,14 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func executeHandler(c *Context) error {
-	if c.routePath != "" && c.IsJSON() && c.Request.Body != nil && c.Request.Body != http.NoBody {
+	if c.routePath != "" && c.Request.Body != nil && c.Request.Body != http.NoBody && c.IsJSON() {
 		_ = c.readJSONBody(c.bodyLimit)
 	}
 	if c.bodyErr != nil {
+		var timedOut net.Error
+		if errors.As(c.bodyErr, &timedOut) && timedOut.Timeout() {
+			return NewError(http.StatusServiceUnavailable, "Request timed out", c.bodyErr)
+		}
 		var tooLarge *http.MaxBytesError
 		if errors.As(c.bodyErr, &tooLarge) {
 			return NewError(http.StatusRequestEntityTooLarge, "request body too large", c.bodyErr)
@@ -523,6 +639,10 @@ func writeHandlerError(c *Context, err error) {
 }
 
 func (r *Router) findRoute(root *node, path string, params map[string]string) (*node, bool) {
+	return matchRoute(root, path, params)
+}
+
+func matchRoute(root *node, path string, params map[string]string) (*node, bool) {
 	if root == nil {
 		return nil, false
 	}
@@ -535,7 +655,7 @@ func (r *Router) findRoute(root *node, path string, params map[string]string) (*
 			if current.handler != nil {
 				return current
 			}
-			if child := current.children["*"]; child != nil && child.handler != nil {
+			if child := current.wildcardChild; child != nil && child.handler != nil {
 				params[child.paramNames[paramIndex]] = ""
 				return child
 			}
@@ -551,13 +671,13 @@ func (r *Router) findRoute(root *node, path string, params map[string]string) (*
 				return leaf
 			}
 		}
-		if child := current.children[":"]; child != nil {
+		if child := current.paramChild; child != nil {
 			if leaf := match(child, end, paramIndex+1); leaf != nil {
 				params[leaf.paramNames[paramIndex]] = part
 				return leaf
 			}
 		}
-		if child := current.children["*"]; child != nil && child.handler != nil {
+		if child := current.wildcardChild; child != nil && child.handler != nil {
 			params[child.paramNames[paramIndex]] = path[start:]
 			return child
 		}
@@ -671,6 +791,9 @@ func listenAndServe(srv *http.Server) error {
 }
 
 func serveWithShutdown(srv *http.Server, serve func() error) error {
+	if router, ok := srv.Handler.(*Router); ok {
+		router.routingState()
+	}
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(quit)

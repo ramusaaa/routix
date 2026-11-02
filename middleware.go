@@ -35,6 +35,7 @@ package routix
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -90,6 +91,9 @@ func Recovery() Middleware {
 				if recovered := recover(); recovered != nil {
 					if recovered == http.ErrAbortHandler {
 						panic(recovered)
+					}
+					if c.ResponseWritten() {
+						panic(http.ErrAbortHandler)
 					}
 					err = InternalServerError("Internal Server Error", nil)
 				}
@@ -182,6 +186,50 @@ func RateLimit(requests int, duration time.Duration) Middleware {
 	}
 }
 
+type timeoutContextKey struct{}
+
+type timeoutReadState struct {
+	mu         sync.Mutex
+	controller *http.ResponseController
+	deadline   time.Time
+	closed     bool
+}
+
+func (s *timeoutReadState) shorten(deadline time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || !s.deadline.IsZero() && !deadline.Before(s.deadline) {
+		return
+	}
+	s.deadline = deadline
+	_ = s.controller.SetReadDeadline(deadline)
+}
+
+func (s *timeoutReadState) close() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+}
+
+type timeoutResponse struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
+}
+
+func (w *timeoutResponse) Header() http.Header { return w.header }
+func (w *timeoutResponse) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+func (w *timeoutResponse) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.body.Write(body)
+}
+
 // Timeout returns a middleware that adds a timeout to request processing.
 // It cancels the request if it takes longer than the specified duration.
 func Timeout(timeout time.Duration) Middleware {
@@ -190,31 +238,53 @@ func Timeout(timeout time.Duration) Middleware {
 	}
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			controller := http.NewResponseController(c.Response)
-			if err := controller.SetReadDeadline(time.Now().Add(timeout)); err == nil {
-				defer controller.SetReadDeadline(time.Time{})
+			ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+			defer cancel()
+			state, _ := ctx.Value(timeoutContextKey{}).(*timeoutReadState)
+			if state == nil {
+				state = &timeoutReadState{controller: http.NewResponseController(c.Response)}
+				defer state.close()
+				ctx = context.WithValue(ctx, timeoutContextKey{}, state)
 			}
+			deadline, _ := ctx.Deadline()
+			state.shorten(deadline)
 			local := *c
 			local.Params = cloneMap(c.Params)
 			local.Query = cloneMap(c.Query)
 			local.Body = cloneMap(c.Body)
 			local.values = cloneMap(c.values)
-			completed := make(chan struct{}, 1)
+			completed := make(chan error, 1)
 			handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				local.Request = req
 				local.Writer = &responseWriter{ResponseWriter: w}
 				local.Response = local.Writer
-				writeHandlerError(&local, next(&local))
-				completed <- struct{}{}
+				completed <- next(&local)
 			})
 			c.SetHeader("Content-Type", "application/json; charset=utf-8")
-			http.TimeoutHandler(handler, timeout, `{"status":"error","message":"Request timed out"}`).ServeHTTP(c.Response, c.Request.Clone(c.Request.Context()))
+			response := &timeoutResponse{header: c.Response.Header().Clone()}
+			http.TimeoutHandler(handler, timeout, `{"status":"error","message":"Request timed out"}`).ServeHTTP(response, c.Request.Clone(ctx))
+			var result error
 			select {
-			case <-completed:
+			case result = <-completed:
+				c.dirty = true
 				c.values = local.values
+				for key, values := range response.header {
+					c.Response.Header()[key] = append([]string(nil), values...)
+				}
+				if result != nil && !local.ResponseWritten() && ctx.Err() == nil {
+					return result
+				}
 			default:
 			}
-			return nil
+			for key, values := range response.header {
+				c.Response.Header()[key] = append([]string(nil), values...)
+			}
+			c.Response.WriteHeader(response.status)
+			_, err := c.Response.Write(response.body.Bytes())
+			if result != nil && ctx.Err() == nil {
+				return result
+			}
+			return err
 		}
 	}
 }
@@ -274,7 +344,7 @@ func CacheWithOptions(duration time.Duration, config CacheOptions) Middleware {
 	var mu sync.Mutex
 	return func(next Handler) Handler {
 		return func(c *Context) error {
-			if duration <= 0 || config.Skip != nil && config.Skip(c) || c.Request.Method != http.MethodGet || len(c.Request.Header.Values("Authorization")) > 0 || len(c.Request.Header.Values("Cookie")) > 0 || len(c.Request.Header.Values("Range")) > 0 || len(c.Request.Header.Values("Cache-Control")) > 0 || len(c.Request.Header.Values("If-None-Match")) > 0 || len(c.Request.Header.Values("If-Modified-Since")) > 0 {
+			if duration <= 0 || c.Request.TLS != nil && len(c.Request.TLS.PeerCertificates) > 0 || config.Skip != nil && config.Skip(c) || c.Request.Method != http.MethodGet || len(c.Request.Header.Values("Authorization")) > 0 || len(c.Request.Header.Values("Cookie")) > 0 || len(c.Request.Header.Values("Range")) > 0 || len(c.Request.Header.Values("Cache-Control")) > 0 || len(c.Request.Header.Values("If-None-Match")) > 0 || len(c.Request.Header.Values("If-Modified-Since")) > 0 {
 				return next(c)
 			}
 			scope := ""
@@ -381,7 +451,7 @@ func (w *cacheWriter) Flush() {
 
 func Compress() Middleware {
 	return func(next Handler) Handler {
-		return func(c *Context) error {
+		return func(c *Context) (err error) {
 			addVary(c.Response.Header(), "Accept-Encoding")
 			if c.Request.Method == http.MethodHead || len(c.Request.Header.Values("Range")) > 0 || !acceptsGzip(c.GetHeader("Accept-Encoding")) {
 				return next(c)
@@ -390,14 +460,16 @@ func Compress() Middleware {
 			writer := &gzipResponseWriter{ResponseWriter: originalResponse}
 			c.Writer = &responseWriter{ResponseWriter: writer}
 			c.Response = c.Writer
-			defer func() { c.Writer = originalWriter; c.Response = originalResponse }()
-			err := next(c)
-			if writer.gzip != nil {
-				if closeErr := writer.gzip.Close(); err == nil {
-					err = closeErr
+			defer func() {
+				c.Writer = originalWriter
+				c.Response = originalResponse
+				if writer.gzip != nil {
+					if closeErr := writer.gzip.Close(); err == nil {
+						err = closeErr
+					}
 				}
-			}
-			return err
+			}()
+			return next(c)
 		}
 	}
 }

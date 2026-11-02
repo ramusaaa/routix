@@ -11,8 +11,7 @@ import (
 var contextPool = sync.Pool{
 	New: func() interface{} {
 		return &Context{
-			Params: make(map[string]string),
-			Query:  make(map[string]string),
+			requestParams: make(map[string]string),
 		}
 	},
 }
@@ -24,17 +23,6 @@ func getContext() *Context {
 
 // putContext returns a context to the pool
 func putContext(c *Context) {
-	// Clear the context
-	for k := range c.Params {
-		delete(c.Params, k)
-	}
-	for k := range c.Query {
-		delete(c.Query, k)
-	}
-	c.Request = nil
-	c.Response = nil
-	c.Body = nil
-
 	contextPool.Put(c)
 }
 
