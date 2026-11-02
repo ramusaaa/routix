@@ -73,20 +73,20 @@ type Context struct {
 	Params        map[string]string
 	Query         map[string]string
 	Body          map[string]any
-	values        map[string]any
-	rawBody       []byte
-	bodyRead      bool
-	dirty         bool
-	bodyErr       error
-	bodyLimit     int64
-	handler       Handler
-	clientIP      string
-	routePath     string
-	secure        bool
 	writer        responseWriter
 	jsonWriter    jsonResponseWriter
-	requestPeer   string
 	requestParams map[string]string
+	routePath     string
+	requestPeer   string
+	bodyLimit     int64
+	secure        bool
+	dirty         bool
+	bodyRead      bool
+	handler       Handler
+	values        map[string]any
+	rawBody       []byte
+	bodyErr       error
+	clientIP      string
 }
 
 // Set stores a value in the context, scoped to this request.
@@ -122,27 +122,6 @@ func (c *Context) Status() int {
 }
 
 func (c *Context) ResponseWritten() bool { return c.Writer.written }
-
-func newRequestContext(req *http.Request, w http.ResponseWriter, query map[string]string, pooled bool) *Context {
-	var ctx *Context
-	if pooled {
-		ctx = getContext()
-	} else {
-		ctx = &Context{}
-	}
-	ctx.Request = req
-	ctx.writer = responseWriter{ResponseWriter: w}
-	ctx.Writer = &ctx.writer
-	ctx.Response = &ctx.writer
-	if ctx.requestParams == nil {
-		ctx.requestParams = make(map[string]string)
-	}
-	ctx.Params = ctx.requestParams
-	if query != nil {
-		ctx.Query = query
-	}
-	return ctx
-}
 
 func putContextToPool(ctx *Context) {
 	if len(ctx.requestParams) != 0 {
@@ -457,7 +436,18 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
-	ctx := newRequestContext(req, w, query, pooled)
+	var ctx *Context
+	if pooled {
+		ctx = getContext()
+	} else {
+		ctx = &Context{requestParams: make(map[string]string)}
+	}
+	ctx.Request = req
+	ctx.writer.ResponseWriter = w
+	ctx.Writer = &ctx.writer
+	ctx.Response = &ctx.writer
+	ctx.Params = ctx.requestParams
+	ctx.Query = query
 	params := ctx.Params
 	if pooled {
 		defer putContextToPool(ctx)

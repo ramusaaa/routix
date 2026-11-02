@@ -254,30 +254,38 @@ func Timeout(timeout time.Duration) Middleware {
 			local.Body = cloneMap(c.Body)
 			local.values = cloneMap(c.values)
 			completed := make(chan error, 1)
+			c.SetHeader("Content-Type", "application/json; charset=utf-8")
+			initialHeaders := c.Response.Header().Clone()
+			response := &timeoutResponse{header: initialHeaders.Clone()}
 			handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				for key, values := range initialHeaders {
+					w.Header()[key] = append([]string(nil), values...)
+				}
 				local.Request = req
 				local.Writer = &responseWriter{ResponseWriter: w}
 				local.Response = local.Writer
 				completed <- next(&local)
 			})
-			c.SetHeader("Content-Type", "application/json; charset=utf-8")
-			response := &timeoutResponse{header: c.Response.Header().Clone()}
 			http.TimeoutHandler(handler, timeout, `{"status":"error","message":"Request timed out"}`).ServeHTTP(response, c.Request.Clone(ctx))
 			var result error
+			finished := false
 			select {
 			case result = <-completed:
 				c.dirty = true
 				c.values = local.values
-				for key, values := range response.header {
-					c.Response.Header()[key] = append([]string(nil), values...)
-				}
-				if result != nil && !local.ResponseWritten() && ctx.Err() == nil {
-					return result
+				if ctx.Err() == nil {
+					finished = true
+					response.header = local.Response.Header().Clone()
 				}
 			default:
 			}
+			headers := c.Response.Header()
+			clear(headers)
 			for key, values := range response.header {
-				c.Response.Header()[key] = append([]string(nil), values...)
+				headers[key] = append([]string(nil), values...)
+			}
+			if finished && result != nil && !local.ResponseWritten() {
+				return result
 			}
 			c.Response.WriteHeader(response.status)
 			_, err := c.Response.Write(response.body.Bytes())
