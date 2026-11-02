@@ -12,6 +12,7 @@ Read in this order:
 4. [Verification](docs/verification.md): runnable checks, local-only test coverage, fuzzing, and API compatibility.
 5. [Performance](docs/performance.md): benchmark setup, measured scope, and remaining gaps.
 6. [Limitations](docs/limitations.md): unresolved findings and release concerns.
+7. [Performance target](docs/performance-target.md): the 48-cell Gin acceptance matrix and `tools/benchmark-target.py` checker.
 
 Documentation is a navigation aid. Check the implementation before changing behavior. When code and documentation disagree, reproduce the behavior and update both. Do not claim complete understanding from this index alone.
 
@@ -24,6 +25,7 @@ Documentation is a navigation aid. Check the implementation before changing beha
 | Middleware and response-controller ownership | `middleware.go` |
 | Proxy trust, security, readiness | `proxy.go`, `security.go`, `readiness.go` |
 | Pooling and process metrics | `performance.go` |
+| Gin performance acceptance | `tools/benchmark-target.py`, `docs/performance-target.md` |
 | Builder and shortcuts | `builder.go`, `shortcuts.go` |
 | Schema and validation | `base.go`, `validator.go`, `constraints.go` |
 | Contracts and TypeScript | `codegen.go`, `contract_schema.go`, `contract_source.go`, `typescript.go` |
