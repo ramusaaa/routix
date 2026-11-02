@@ -3,8 +3,10 @@ package routix
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +20,13 @@ type Validator struct {
 type validatorField struct {
 	index int
 	name  string
-	rules []string
+	rules []validatorRule
+}
+
+type validatorRule struct {
+	text   string
+	number float64
+	err    error
 }
 
 type validatorRegex struct {
@@ -39,7 +47,20 @@ func fieldsForValidation(typ reflect.Type) []validatorField {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		if tag := field.Tag.Get("validate"); tag != "" {
-			fields = append(fields, validatorField{index: i, name: field.Name, rules: strings.Split(tag, ",")})
+			rules := make([]validatorRule, 0)
+			for _, text := range strings.Split(tag, ",") {
+				rule := validatorRule{text: text}
+				name, value, _ := strings.Cut(text, "=")
+				if name == "min" || name == "max" || name == "len" {
+					rule.number, rule.err = parseNumber(value)
+					kind := field.Type.Kind()
+					if rule.err == nil && (name == "len" || kind == reflect.String || kind == reflect.Slice || kind == reflect.Map || kind == reflect.Array) && (rule.number < 0 || math.Trunc(rule.number) != rule.number) {
+						rule.err = fmt.Errorf("length must be a nonnegative integer")
+					}
+				}
+				rules = append(rules, rule)
+			}
+			fields = append(fields, validatorField{index: i, name: field.Name, rules: rules})
 		}
 	}
 	cached, _ := validatorFields.LoadOrStore(typ, fields)
@@ -79,24 +100,28 @@ func (v *Validator) Validate(obj interface{}) bool {
 }
 
 // validateField validates a single field based on the given rule
-func (v *Validator) validateField(field reflect.Value, fieldName, rule string) *ValidationError {
+func (v *Validator) validateField(field reflect.Value, fieldName string, compiled validatorRule) *ValidationError {
+	if compiled.err != nil {
+		return NewValidationError(fieldName, fmt.Sprintf("invalid validation rule %q: %v", compiled.text, compiled.err))
+	}
+	rule := compiled.text
 	switch {
 	case rule == "required":
 		if isEmpty(field) {
 			return NewValidationError(fieldName, "field is required")
 		}
 	case strings.HasPrefix(rule, "min="):
-		min := parseNumber(rule[4:])
+		min := compiled.number
 		if !validateMin(field, min) {
 			return NewValidationError(fieldName, fmt.Sprintf("value must be at least %v", min))
 		}
 	case strings.HasPrefix(rule, "max="):
-		max := parseNumber(rule[4:])
+		max := compiled.number
 		if !validateMax(field, max) {
 			return NewValidationError(fieldName, fmt.Sprintf("value must be at most %v", max))
 		}
 	case strings.HasPrefix(rule, "len="):
-		length := parseNumber(rule[4:])
+		length := compiled.number
 		if !validateLength(field, length) {
 			return NewValidationError(fieldName, fmt.Sprintf("length must be %v", length))
 		}
@@ -244,10 +269,15 @@ func validateDate(field reflect.Value, format string) bool {
 }
 
 // parseNumber parses a number from a string
-func parseNumber(s string) float64 {
-	var f float64
-	fmt.Sscanf(s, "%f", &f)
-	return f
+func parseNumber(s string) (float64, error) {
+	number, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return 0, fmt.Errorf("value must be finite")
+	}
+	return number, nil
 }
 
 // Errors returns all validation errors
