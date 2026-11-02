@@ -16,6 +16,7 @@ func (c *Context) readJSONBody(limit int64) error {
 	if c.bodyRead {
 		return c.bodyErr
 	}
+	c.dirty = true
 	c.bodyRead = true
 	if c.Request.Body == nil {
 		c.bodyErr = io.EOF
@@ -108,6 +109,9 @@ func (c *Context) IsAjax() bool {
 func (c *Context) ClientIP() string {
 	if c.clientIP != "" {
 		return c.clientIP
+	}
+	if c.requestPeer != "" {
+		return remoteIP(c.requestPeer)
 	}
 	return remoteIP(c.Request.RemoteAddr)
 }

@@ -117,35 +117,45 @@ func ConvertError(err error, fallbackMessage string) error {
 	}
 }
 
+type jsonResponseWriter struct {
+	response http.ResponseWriter
+	status   int
+}
+
+func (w jsonResponseWriter) Write(body []byte) (int, error) {
+	w.response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.response.WriteHeader(w.status)
+	return w.response.Write(body)
+}
+
 func (c *Context) JSON(status int, data interface{}) error {
-	c.Response.Header().Set("Content-Type", "application/json; charset=utf-8")
-	c.Response.WriteHeader(status)
-	encoder := json.NewEncoder(c.Response)
+	previous := c.jsonWriter
+	c.jsonWriter = jsonResponseWriter{response: c.Response, status: status}
+	defer func() { c.jsonWriter = previous }()
+	encoder := json.NewEncoder(&c.jsonWriter)
 	encoder.SetEscapeHTML(false)
 	return encoder.Encode(data)
 }
 
 func (c *Context) FastJSON(status int, data interface{}) error {
-	c.Response.Header().Set("Content-Type", "application/json; charset=utf-8")
-	c.Response.WriteHeader(status)
-
-	switch v := data.(type) {
+	writer := jsonResponseWriter{response: c.Response, status: status}
+	switch value := data.(type) {
 	case string:
-		encoded, err := json.Marshal(v)
+		encoded, err := json.Marshal(value)
 		if err != nil {
 			return err
 		}
-		_, err = c.Response.Write(encoded)
+		_, err = writer.Write(encoded)
 		return err
 	case int:
-		_, err := fmt.Fprintf(c.Response, "%d", v)
+		_, err := fmt.Fprintf(writer, "%d", value)
 		return err
 	case bool:
-		if v {
-			_, err := c.Response.Write([]byte("true"))
-			return err
+		body := []byte("false")
+		if value {
+			body = []byte("true")
 		}
-		_, err := c.Response.Write([]byte("false"))
+		_, err := writer.Write(body)
 		return err
 	default:
 		return c.JSON(status, data)
