@@ -153,7 +153,7 @@ Auth scaffolding produces database-backed users and token lifecycle code. Migrat
 
 ## Performance and verification
 
-Performance depends on route distribution, middleware, payload, CPU count, and Go version. Routix has measured wins and remaining gaps against Gin, Echo, and Chi; there is no claim of universal superiority. See [methodology and results](docs/performance.md) for matched workloads, allocations, limits, and reproducibility.
+Performance depends on route distribution, middleware, payload, CPU count, and Go version. Routix has measured wins and remaining gaps against Gin, Echo, and Chi; there is no claim of universal superiority. See [methodology and results](docs/performance.md) for matched workloads, allocations, limits, and reproducibility. The [1.5× Gin throughput target](docs/performance-target.md) has a complete 48-cell acceptance contract and checker; it is not yet achieved.
 
 ```sh
 go test ./...

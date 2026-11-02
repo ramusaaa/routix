@@ -75,3 +75,7 @@ The inherited-header and numeric-configuration tests fail against the preceding 
 Compile complete Go examples in isolated modules with a replace pointing to the checkout. Type-check contextual snippets with their documented surrounding declarations. Check relative links and source paths from a clean portable copy. CLI examples must match argument parsing, not only help text.
 
 Documentation links must not depend on a maintainer's Desktop or temporary artifact directories. If benchmark fixtures remain local-only, state that limitation and include enough methodology and results for review.
+
+## Gin target analysis tool
+
+`tools/benchmark-target.py` checks the fixed 48-cell target described in [the acceptance contract](performance-target.md). Its local regression file is `tools/benchmark_target_local_test.py`; it remains excluded from commits under the current policy. Twelve checks cover the exact 1.5 throughput boundary, a single failing/missing cell, insufficient samples, wrong CPU/mode, invalid/nonfinite timings and options, duplicate input paths, explicit failed runs, scientific notation, and combining forward/reverse inputs. This tool checks measured data; it does not replace adapter correctness, race, API, or provenance checks.

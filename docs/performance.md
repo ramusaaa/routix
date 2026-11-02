@@ -105,3 +105,7 @@ Both orderings contribute to the final median. Before/after versions are loaded 
 - In-process ns/op cannot be labeled real-network RPS, p95/p99 latency, or production capacity.
 
 For a production comparison, add representative middleware, body sizes, parameter shapes, invalid routes, request distributions, a real HTTP server/client, sustained concurrency, and latency/error percentiles. Preserve matched response semantics and publish the full matrix.
+
+## Fixed Gin target
+
+The new target is at least 1.5 times Gin throughput in every required cell, with API and behavioral compatibility preserved. [The target contract and checker](performance-target.md) require all 48 cells; no aggregate or selected winner substitutes for that verdict. This target is not yet met.
